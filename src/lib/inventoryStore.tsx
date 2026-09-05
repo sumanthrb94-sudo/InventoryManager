@@ -9,6 +9,7 @@ import {
   AccessoryStockEvent,
   SupplierWhatsappUpdate,
   ImportBatch,
+  DeletedUnitRecord,
 } from '../types';
 import type { ModelSeed } from './deviceCatalog';
 import { parseBrandModelStorage, looksLikeSku } from './modelStorage';
@@ -141,6 +142,9 @@ interface Store {
   /** Import provenance. NOT subscribed at startup — see LAZY_COLLECTIONS.
    *  A screen that needs it calls useLazyCollection('importBatches'). */
   importBatches: ImportBatch[];
+  /** The deletion archive. Lazy for the same reason and read whole only by
+   *  the Deleted Units page. */
+  deletedUnits: DeletedUnitRecord[];
   /** Admin-curated model catalog seeds — one doc per row in the
    *  `models` Firestore collection. Surfaced here so DeviceComboBox in
    *  Add Stock + Bulk Order + the admin Reconciliation tool all read
@@ -172,9 +176,13 @@ interface Store {
   requestCollection: (name: LazyCollection) => void;
 }
 
-/** Collections opened on demand rather than at boot. Both grow without bound:
- *  one accessory event per stock movement, one import batch per upload. */
-export type LazyCollection = 'accessoryStockEvents' | 'importBatches';
+/** Collections opened on demand rather than at boot. Every one of these grows
+ *  without bound: one accessory event per stock movement, one import batch per
+ *  upload, one deletion record per unit removed. `deletedUnits` is only ever
+ *  read whole by the Deleted Units page — the intake screens ask about a
+ *  single IMEI through dbService.queryDeletedUnitsByImei instead, which is a
+ *  point query and stays cheap however large the archive gets. */
+export type LazyCollection = 'accessoryStockEvents' | 'importBatches' | 'deletedUnits';
 
 const Ctx = createContext<Store>({
   loaded: false,
@@ -185,6 +193,7 @@ const Ctx = createContext<Store>({
   accessoryStock: [],
   accessoryStockEvents: [],
   importBatches: [],
+  deletedUnits: [],
   models: [],
   catalogIndex: new Map(),
   requestCollection: () => {},
@@ -198,6 +207,7 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const [accessoryStock, setAccessoryStock] = useState<AccessoryStock[]>([]);
   const [accessoryStockEvents, setAccessoryStockEvents] = useState<AccessoryStockEvent[]>([]);
   const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
+  const [deletedUnits, setDeletedUnits] = useState<DeletedUnitRecord[]>([]);
   const [models, setModels]               = useState<ModelSeed[]>([]);
   const [loaded, setLoaded]               = useState(false);
   // An empty index makes every canonicaliseModel() call fall through to the
@@ -274,9 +284,15 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
   const lazySubs = useRef<Map<LazyCollection, () => void>>(new Map());
   const requestCollection = useCallback((name: LazyCollection) => {
     if (lazySubs.current.has(name)) return;
-    const unsub = name === 'accessoryStockEvents'
-      ? dbService.subscribeToCollection('accessoryStockEvents', (data: any[]) => setAccessoryStockEvents(data))
-      : dbService.subscribeToCollection('importBatches', (data: any[]) => setImportBatches(data));
+    // A map, not a ternary chain: the two-way ternary silently sent any third
+    // collection to importBatches, so adding one would have looked wired up
+    // and returned the wrong data.
+    const setters: Record<LazyCollection, (data: any[]) => void> = {
+      accessoryStockEvents: setAccessoryStockEvents,
+      importBatches: setImportBatches,
+      deletedUnits: setDeletedUnits,
+    };
+    const unsub = dbService.subscribeToCollection(name, setters[name]);
     lazySubs.current.set(name, unsub);
   }, []);
   useEffect(() => {
@@ -295,6 +311,7 @@ export function InventoryStoreProvider({ children }: { children: React.ReactNode
         accessoryStock,
         accessoryStockEvents,
         importBatches,
+        deletedUnits,
         models,
         catalogIndex,
         requestCollection,

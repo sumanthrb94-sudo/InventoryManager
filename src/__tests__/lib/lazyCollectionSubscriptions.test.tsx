@@ -47,7 +47,7 @@ const EAGER = [
 ].sort();
 
 /** Opened only by the screen that shows them. */
-const LAZY = ['accessoryStockEvents', 'importBatches'];
+const LAZY = ['accessoryStockEvents', 'importBatches', 'deletedUnits'];
 
 beforeEach(() => { subscribed.length = 0; });
 

@@ -6,7 +6,7 @@ import {
   LogOut, Plus, LayoutDashboard,
   TrendingUp, FileText, Users, Settings, Database,
   ClipboardList, Menu, X, Megaphone, SlidersHorizontal, Receipt, Upload,
-  FileSpreadsheet,
+  FileSpreadsheet, Trash2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard, { NavAction } from './components/Dashboard';
@@ -20,6 +20,7 @@ import ConfigurationPanel from './components/ConfigurationPanel';
 import MoneySection from './components/MoneySection';
 import { useUnseenNoticesCount } from './hooks/useUnseenNoticesCount';
 import ReportingPage from './components/ReportingPage';
+import DeletedUnitsPage from './components/DeletedUnitsPage';
 import AnalyticsPage from './components/AnalyticsPage';
 import Sales from './components/Sales';
 import { subscribeToSyncStatus } from './lib/dbService';
@@ -34,7 +35,7 @@ import { useBuildVersionCheck } from './lib/useBuildVersionCheck';
 import type { SupplierWhatsappUpdate } from './types';
 
 type Tab      = 'notices' | 'buy' | 'sell' | 'returns' | 'admin';
-type AdminSub = 'overview' | 'salesHistory' | 'money' | 'insights' | 'reports' | 'configuration';
+type AdminSub = 'overview' | 'salesHistory' | 'money' | 'insights' | 'reports' | 'archive' | 'configuration';
 
 interface NavTab {
   id: Tab;
@@ -169,6 +170,10 @@ const ADMIN_SUBS: { id: AdminSub; label: string; icon: React.ReactNode }[] = [
   // models catalog (what employees can pick in Add Stock + Bulk
   // Order) and suppliers (with the WhatsApp feed). Stand-alone
   // Suppliers sub-tab merged into here so admin edits one screen.
+  // The deletion archive. Beside Reports rather than inside Configuration:
+  // it is a record to read, not a setting to change — and nothing on it can
+  // be edited, by anyone (firestore.rules denies delete outright).
+  { id: 'archive',       label: 'Deleted Units',      icon: <Trash2 size={14} /> },
   { id: 'configuration', label: 'Configuration',      icon: <SlidersHorizontal size={14} /> },
   // 'Reconcile Models' removed 2026-07: model names are decided once in
   // Configuration and applied automatically at import (canonicaliseModel),
@@ -801,6 +806,7 @@ function AppShell({ user }: { user: User }) {
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'money'        && <MoneySection />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'insights'     && <AnalyticsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'reports'      && <ReportingPage />}
+                {activeTab === 'admin' && userIsAdmin && adminSub === 'archive'      && <DeletedUnitsPage />}
                 {activeTab === 'admin' && userIsAdmin && adminSub === 'configuration' && <ConfigurationPanel />}
               </motion.div>
             </AnimatePresence>

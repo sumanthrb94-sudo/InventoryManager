@@ -52,6 +52,7 @@ import {
 } from '../services/returnsService';
 import { postageLossFor } from '../lib/clientReport';
 import { extraCostsFor, feeLossOnRefund, postageVatOf, type ReturnCostGap } from '../lib/returnLoss';
+import { downloadCsv, triggerDownload } from '../lib/csv';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -3291,26 +3292,5 @@ function titleFor(kpi: KpiId): string {
   }
 }
 
-function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
-  if (rows.length === 0) {
-    const blob = new Blob(['(no rows)\n'], { type: 'text/csv' });
-    triggerDownload(filename, blob);
-    return;
-  }
-  const headers = Object.keys(rows[0]);
-  const esc = (v: any) => {
-    const s = v == null ? '' : String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const lines = [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  triggerDownload(filename, blob);
-}
-
-function triggerDownload(name: string, blob: Blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
+// downloadCsv / triggerDownload now live in lib/csv.ts — the Deleted Units
+// page needs the same quoting, and a second copy is how they drift.

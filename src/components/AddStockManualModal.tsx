@@ -20,7 +20,7 @@
  * also runs an in-batch dedupe for instant feedback. Apple devices accept
  * a 10–12 char alphanumeric serial in place of the 15-digit IMEI.
  */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { X, Plus, Trash2, CheckCircle2, PackagePlus, AlertCircle, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInventoryStore } from '../lib/inventoryStore';
@@ -33,6 +33,7 @@ import {
   isAppleDevice,
   IMEI_REQUIRED_MESSAGE,
   IMEI_OR_APPLE_SERIAL_MESSAGE,
+  normaliseImeiKey,
 } from '../lib/imeiValidation';
 import { SimTypeSelectCompact } from './FormSelects';
 import { parseBrandModelStorage } from '../lib/modelStorage';
@@ -41,7 +42,8 @@ import { addUnitManual, ensureSupplier, upsertAccessoryStock } from '../services
 import AccessoryComboBox from './AccessoryComboBox';
 import { buildAccessoryCatalog, accessoryEntryFor } from '../lib/accessoryCatalog';
 import { normaliseCatalogEntry } from '../lib/migrations/normaliseModelCatalog';
-import type { InventoryUnit, ListingSite, AccessoryStock } from '../types';
+import { lookupDeletedUnits, describeDeletion } from '../lib/deletedUnitLookup';
+import type { InventoryUnit, ListingSite, AccessoryStock, DeletedUnitRecord } from '../types';
 import DeviceComboBox from './DeviceComboBox';
 
 type Mode = 'office' | 'shs' | 'accessory';
@@ -164,6 +166,12 @@ interface RowValidation {
     returnType?: string;
     supplierName?: string;
   };
+  /** The most recent recorded deletion of this IMEI, if there is one.
+   *  A WARNING, never a block: a handset that failed QC and was scrapped
+   *  should not come back into stock unnoticed, but the operator is the
+   *  one who knows whether this is the same physical device. Deliberately
+   *  absent from `imeiOk` and `complete` — Save stays enabled. */
+  priorDeletion?: DeletedUnitRecord;
   bpOk: boolean;
   supplierOk: boolean;
   /** Storage is required so units don't split into separate buckets in the
@@ -287,16 +295,46 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     return { validLines, quantity, value };
   }, [accRows, accValidation]);
 
+  // ── Was any of these IMEIs deleted before? ─────────────────────────────────
+  //
+  // Async, so it cannot live inside the validation memo. Results land in state
+  // and the memo reads them; until they arrive the row simply carries no
+  // warning, which is the pre-existing behaviour rather than a wrong one.
+  //
+  // Debounced because this fires on every keystroke in an IMEI field. The
+  // lookup caches misses as well as hits, so a re-render costs nothing, but
+  // typing 15 digits should still not queue 15 rounds of work.
+  const [priorDeletions, setPriorDeletions] = useState<Map<string, DeletedUnitRecord>>(new Map());
+  const imeiKeysForLookup = useMemo(
+    () => rows
+      .map(r => normaliseImeiKey(r.imei))
+      // Only ask about something long enough to be a real identifier. A
+      // half-typed IMEI matches nothing and would burn a read per keystroke.
+      .filter(k => k.length >= 10)
+      .join(','),
+    [rows],
+  );
+  useEffect(() => {
+    const keys = imeiKeysForLookup ? imeiKeysForLookup.split(',') : [];
+    if (keys.length === 0) { setPriorDeletions(new Map()); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      lookupDeletedUnits(keys).then(found => {
+        if (!cancelled) setPriorDeletions(found);
+      });
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [imeiKeysForLookup]);
+
   // ── Validation per row ─────────────────────────────────────────────────────
   const validation: RowValidation[] = useMemo(() => rows.map(r => {
     // Strip invisible whitespace from the operator-typed IMEI to match the
     // same normalisation done when we built existingByImei above. Without
     // this an Excel-pasted IMEI with a trailing zero-width space would
     // never match a clean DB record (or vice-versa).
-    const imei = r.imei
-      .replace(/[​-‍﻿ ]/g, '')
-      .trim()
-      .toUpperCase();
+    // normaliseImeiKey, not a private copy: this screen and Bulk Order must
+    // agree on what "the same IMEI" means, and the archive lookup keys on it too.
+    const imei = normaliseImeiKey(r.imei);
     const isApple = isAppleDevice(r.model);
     const imeiRequired = mode === 'office';
     const imeiEmpty = imei.length === 0;
@@ -367,10 +405,14 @@ export default function AddStockManualModal({ onClose, initialMode = 'office' }:
     return {
       modelOk, imeiOk, isApple, imeiRequired, imeiEmpty,
       dupeInBatch, dupeInDb, priorHistoryInDb, dupeInDbMatch,
+      // Warning only. Note it is NOT in `imeiOk` or `complete` below — a
+      // handset can legitimately be re-stocked after being written off, and
+      // the operator holding it is the one who knows.
+      priorDeletion: imei ? priorDeletions.get(imei) : undefined,
       bpOk, supplierOk, storageOk,
       complete: modelOk && imeiOk && bpOk && supplierOk && storageOk,
     };
-  }), [rows, mode, existingByImei]);
+  }), [rows, mode, existingByImei, priorDeletions]);
 
   // ── Totals strip ───────────────────────────────────────────────────────────
   const totals = useMemo(() => {
@@ -845,6 +887,13 @@ function Row({
       }
       return 'Re-stocking · matching record found';
     }
+    // AFTER the hard blocks, deliberately. A blocked IMEI has a reason the
+    // operator must act on; this one only needs to be seen. It sits after
+    // priorHistoryInDb too — if a live record exists, that is the more
+    // immediate fact, and a unit cannot be both in stock and deleted.
+    if (validation.priorDeletion) {
+      return describeDeletion(validation.priorDeletion);
+    }
     if (!validation.imeiOk && !validation.imeiEmpty) {
       return validation.isApple ? IMEI_OR_APPLE_SERIAL_MESSAGE : IMEI_REQUIRED_MESSAGE;
     }
@@ -962,7 +1011,11 @@ function Row({
             validation.imeiEmpty && !validation.imeiRequired ? 'muted' :
             // Soft amber hint when the IMEI matches a sold/returned
             // unit but is otherwise valid — re-stocking is allowed.
-            validation.priorHistoryInDb && validation.imeiOk      ? 'info'  :
+            // A previously-DELETED IMEI joins the same amber tone rather
+            // than getting a colour of its own: both say "this is allowed,
+            // but look at it first", and a third colour would only dilute
+            // the one that means "blocked".
+            (validation.priorHistoryInDb || validation.priorDeletion) && validation.imeiOk ? 'info' :
             'error'
           }
         >
@@ -975,7 +1028,7 @@ function Row({
             inputMode={validation.isApple ? 'text' : 'numeric'}
             maxLength={validation.isApple ? 16 : 15}
             className={`w-full border rounded-lg px-2.5 py-1.5 text-[12px] font-mono focus:outline-none transition-all ${
-              validation.priorHistoryInDb && validation.imeiOk
+              (validation.priorHistoryInDb || validation.priorDeletion) && validation.imeiOk
                 ? 'border-amber-300 bg-amber-50 focus:border-amber-500'
                 : imeiHelp && !(validation.imeiEmpty && !validation.imeiRequired)
                   ? 'border-rose-300 bg-rose-50 focus:border-rose-500'

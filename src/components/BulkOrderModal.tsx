@@ -33,7 +33,7 @@ import { motion } from 'motion/react';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { dbService } from '../lib/dbService';
 import { auth, isAdmin } from '../lib/firebase';
-import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
+import { isValidImei, isAppleDevice, normaliseImeiKey } from '../lib/imeiValidation';
 import { parseBrandModelStorage } from '../lib/modelStorage';
 import { ensureSupplier } from '../services';
 import { logInventoryEvent } from '../lib/inventoryEvents';
@@ -43,7 +43,8 @@ import DeviceComboBox from './DeviceComboBox';
 import IMEIScanner from './IMEIScanner';
 import { normaliseCatalogEntry } from '../lib/migrations/normaliseModelCatalog';
 import type { ModelSeed } from '../lib/deviceCatalog';
-import type { InventoryUnit, ListingSite } from '../types';
+import { lookupDeletedUnit, describeDeletion } from '../lib/deletedUnitLookup';
+import type { InventoryUnit, ListingSite, DeletedUnitRecord } from '../types';
 
 type Mode = 'office' | 'shs';
 type Stage = 'setup' | 'scan' | 'review' | 'saving' | 'done';
@@ -191,6 +192,10 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
    *  Office mode, so the colliding row points at itself). Naturally
    *  cleared on unmount. */
   const [writtenImeis, setWrittenImeis] = useState<Set<string>>(() => new Set());
+  /** IMEI key → the deletion the archive already holds for it. Populated
+   *  off the critical path (see handleScanSubmit) and read by the Review
+   *  table. A warning, never a block: bulk intake still saves. */
+  const [priorDeletions, setPriorDeletions] = useState<Map<string, DeletedUnitRecord>>(new Map());
 
   // ── Derived: live IMEI dup-check cache ─────────────────────────────────────
   const existingByImei = useMemo(() => {
@@ -277,6 +282,19 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
   //   3. The camera-based IMEIScanner onScan callback
   // All paths validate inline against the in-memory store cache so the
   // operator never waits on a network round-trip per scan.
+  /**
+   * Ask the archive whether this IMEI was deleted before, and remember the
+   * answer. Never awaited by its callers and never throws: intake must not
+   * wait on, or be broken by, a lookup that is only there to inform.
+   */
+  const lookupPriorDeletion = useCallback((raw: string) => {
+    const key = normaliseImeiKey(raw);
+    if (key.length < 10) return;
+    void lookupDeletedUnit(key).then(rec => {
+      if (rec) setPriorDeletions(prev => prev.get(key) === rec ? prev : new Map(prev).set(key, rec));
+    });
+  }, []);
+
   const handleScanSubmit = useCallback((raw: string) => {
     const imei = raw.replace(/\s+/g, '').trim().toUpperCase();
     if (!imei) return;
@@ -305,7 +323,15 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
     setScanError('');
     setScanInput('');
     advanceToNextEmptySlot();
-  }, [model, slots, activeSlotIdx, existingByImei]);
+
+    // AFTER the slot is filled and the cursor has moved on, and deliberately
+    // not awaited. Scanning is throughput work — an operator runs through
+    // forty handsets without looking up — so a network round-trip must never
+    // sit between the scan and the next slot. The warning lands a moment
+    // later on the slot it belongs to; misses are cached, so a re-scan of
+    // the same IMEI costs nothing.
+    lookupPriorDeletion(imei);
+  }, [model, slots, activeSlotIdx, existingByImei, lookupPriorDeletion]);
 
   /** Walk forward from the current slot to find the next empty (or skipped)
    *  one. If none is found, wrap around to find any empty slot. If still
@@ -805,6 +831,8 @@ export default function BulkOrderModal({ onClose, initialMode = 'office' }: Prop
               reviewEditing={reviewEditing}
               setReviewEditing={setReviewEditing}
               existingByImei={existingByImei}
+              priorDeletions={priorDeletions}
+              onImeiEdited={lookupPriorDeletion}
               error={error}
             />
           )}
@@ -1413,13 +1441,18 @@ interface ReviewValidation {
 }
 function ReviewView({
   mode, slots, setSlots, validation, defaultBp, reviewEditing, setReviewEditing,
-  existingByImei, error,
+  existingByImei, priorDeletions, onImeiEdited, error,
 }: {
   mode: Mode;
   slots: UnitSlot[]; setSlots: React.Dispatch<React.SetStateAction<UnitSlot[]>>;
   validation: ReviewValidation; defaultBp: string;
   reviewEditing: string | null; setReviewEditing: (id: string | null) => void;
   existingByImei: Map<string, InventoryUnit>;
+  priorDeletions: Map<string, DeletedUnitRecord>;
+  /** Ask the archive about a hand-typed IMEI. The scan path looks one up
+   *  per scan, but Review is where a slot can be typed or corrected by
+   *  hand, and that IMEI has never been through the scanner. */
+  onImeiEdited: (imei: string) => void;
   error: string;
 }) {
   const updateSlot = (id: string, patch: Partial<UnitSlot>) =>
@@ -1456,9 +1489,13 @@ function ReviewView({
               const isDupInBatch = validation.dupes.has(imeiUp);
               const dbMatch = imeiUp ? existingByImei.get(imeiUp) : undefined;
               const missingImei = mode === 'office' && !slot.imei.trim() && !slot.skipped;
+              // The archive key is normalised, not merely upper-cased, so a
+              // hand-typed IMEI carrying a pasted zero-width character still
+              // finds its own deletion record.
+              const priorDeletion = slot.imei ? priorDeletions.get(normaliseImeiKey(slot.imei)) : undefined;
               const tone =
                 isDupInBatch || dbMatch ? 'bg-rose-50/60'
-                : missingImei ? 'bg-amber-50/40'
+                : missingImei || priorDeletion ? 'bg-amber-50/40'
                 : 'bg-white hover:bg-slate-50';
               return (
                 <tr key={slot.id} className={`${tone} transition-colors`}>
@@ -1477,7 +1514,10 @@ function ReviewView({
                     {isEditing ? (
                       <input
                         value={slot.imei}
-                        onChange={e => updateSlot(slot.id, { imei: e.target.value, skipped: false })}
+                        onChange={e => {
+                          updateSlot(slot.id, { imei: e.target.value, skipped: false });
+                          onImeiEdited(e.target.value);
+                        }}
                         placeholder="IMEI"
                         className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] font-mono focus:outline-none focus:border-slate-900"
                       />
@@ -1524,6 +1564,12 @@ function ReviewView({
                       <span className="text-[10px] font-mono text-rose-700">dup in batch</span>
                     ) : missingImei ? (
                       <span className="text-[10px] font-mono text-amber-700">missing IMEI</span>
+                    ) : priorDeletion ? (
+                      // Below the hard rose states on purpose: "in DB" and
+                      // "dup in batch" stop the save, this one does not.
+                      <span className="text-[10px] font-mono text-amber-700" title={describeDeletion(priorDeletion)}>
+                        deleted before
+                      </span>
                     ) : slot.skipped ? (
                       <span className="text-[10px] font-mono text-amber-700">skipped</span>
                     ) : (

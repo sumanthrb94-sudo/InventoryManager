@@ -588,6 +588,36 @@ export const dbService = {
     return snapToItems(snap);
   },
 
+  // ── Deletion archive lookup ─────────────────────────────────────────────────
+  /**
+   * Every recorded deletion of one IMEI, newest first.
+   *
+   * Firestore composite index required: deletedUnits: imei ASC, deletedAt DESC.
+   *
+   * A POINT QUERY, deliberately, not a subscription. The archive only grows,
+   * and subscribing to it from every session that opens Add Stock is exactly
+   * the read cost LazyCollection exists to avoid. The short-circuit on
+   * `hydrated` matters just as much: once the Deleted Units page has mirrored
+   * the collection, a miss is answered locally instead of costing a billed
+   * read to learn nothing — same reasoning as imeiExists above, and misses are
+   * the common case here since most intake IMEIs were never deleted.
+   */
+  async queryDeletedUnitsByImei(imei: string): Promise<any[]> {
+    if (!imei) return [];
+    const key = imei.trim().toUpperCase();
+    const cached = (cachedData['deletedUnits'] || []).filter((r: any) =>
+      (r.imei || '').trim().toUpperCase() === key
+    );
+    if (cached.length) return [...cached].sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
+    if (hydrated.has('deletedUnits')) return [];
+    const snap = await getDocs(query(
+      colRef('deletedUnits'),
+      where('imei', '==', key),
+      orderBy('deletedAt', 'desc'),
+    ));
+    return snapToItems(snap);
+  },
+
   // ── Generic transaction runner ───────────────────────────────────────────────
   // Returns processing updates inventoryUnits + sales atomically. The callback
   // receives a Firestore Transaction; all reads must precede all writes.
