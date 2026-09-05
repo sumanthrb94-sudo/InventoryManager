@@ -649,5 +649,15 @@
     "fails": [],
     "passes": [],
     "secs": 73
+  },
+  {
+    "script": "e2eReportsInsightsBrutal.mjs",
+    "ok": false,
+    "pass": null,
+    "total": null,
+    "summary": "}",
+    "fails": [],
+    "passes": [],
+    "secs": 73
   }
 ]
