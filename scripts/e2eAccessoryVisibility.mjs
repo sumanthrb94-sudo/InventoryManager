@@ -214,9 +214,22 @@ async function run() {
   // 3a. Sales History row shows the friendly name, not the raw SKU
   await gotoAdminSub(page, 'Sales History');
   await page.waitForTimeout(700);
+  // ALL TIME first. Sales History opens on a rolling 30-day window and this
+  // fixture's sale is pinned to 2026-07-22, so the assertion below silently
+  // became a clock: it passed while "today" was within 30 days of that date
+  // and has failed every day since, reporting a missing accessory name when
+  // the row was merely out of range. Step 3b already sets an explicit date on
+  // Reports for this exact reason; this screen was missed.
+  const allTime = page.getByRole('button', { name: /^ALL TIME$/i }).first();
+  if (await allTime.isVisible().catch(() => false)) {
+    await allTime.click();
+    await page.waitForTimeout(900);
+  }
   const salesText = await page.innerText('body').catch(() => '');
   await shot(page, 'sales-history-friendly-name');
-  record('Sales History shows the friendly accessory name ("USB-C 20W Charger")', salesText.includes(ACCESSORY_NAME));
+  record('Sales History shows the friendly accessory name ("USB-C 20W Charger")',
+    salesText.includes(ACCESSORY_NAME),
+    salesText.includes('No sales match the current filters') ? 'filtered out — no rows shown' : '');
 
   // 3b. Reports → Daily Sales / unified feed shows the friendly name. The
   // sale landed on 2026-07-22, so the Daily Sales date picker (defaults to
