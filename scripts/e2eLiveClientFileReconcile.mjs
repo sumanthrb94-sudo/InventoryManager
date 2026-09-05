@@ -211,7 +211,7 @@ async function run() {
   await gotoTab(page, 'Stock Intake');
   await page.getByRole('button', { name: /^Import$/i }).first().click();
   await page.waitForTimeout(500);
-  await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+  await page.getByRole('button', { name: /^Import Inventory Report$/i }).click();
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(INV_FILE);
   await page.waitForTimeout(4000);
@@ -236,7 +236,7 @@ async function run() {
   await gotoTab(page, 'Inventory');
   await page.getByRole('button', { name: /^Import$/i }).first().click();
   await page.waitForTimeout(500);
-  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await page.getByRole('button', { name: /^Import Sales Report$/i }).click();
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(SALES_FILE);
   await page.waitForTimeout(9000);

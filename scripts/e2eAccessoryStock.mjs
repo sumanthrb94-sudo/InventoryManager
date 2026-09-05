@@ -78,10 +78,12 @@ async function gotoTab(page, label) {
 }
 
 async function openImportMenu(page) {
-  const byLabel = page.getByRole('button', { name: /^Import$/i }).first();
-  if (await byLabel.isVisible().catch(() => false)) await byLabel.click();
-  else await page.locator('button[aria-haspopup="menu"]').first().click();
-  await page.waitForTimeout(500);
+  // The Import dropdown is gone. Inventory and Sales import are now two
+  // labelled icon buttons in the header (App.tsx, behind SHOW_IMPORT_UI &&
+  // userIsAdmin), so there is no menu to open — the click that used to follow
+  // this call now targets the button directly. Kept as a no-op so the call
+  // sites read the same and the diff stays reviewable.
+  await page.waitForTimeout(200);
 }
 
 async function readStore(page) {
@@ -205,7 +207,7 @@ async function run() {
   console.log('\n── 4. Upload a sales report — one accessory sale, no IMEI, matching SKU ──');
   await gotoTab(page, 'Inventory');
   await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await page.getByRole('button', { name: /^Import Sales Report$/i }).click();
   await page.waitForTimeout(700);
   const amazonPicker = modal(page).getByRole('button', { name: /^Amazon$/i }).first();
   if (await amazonPicker.isVisible().catch(() => false)) { await amazonPicker.click(); await page.waitForTimeout(400); }

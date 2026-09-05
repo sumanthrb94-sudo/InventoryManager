@@ -232,7 +232,7 @@ async function goLiveReconciliation(page) {
   try {
     await gotoTab(page, 'Stock Intake');
     await openImportMenu(page);
-    await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+    await page.getByRole('button', { name: /^Import Inventory Report$/i }).click();
     await page.waitForTimeout(1000);
     await page.locator('input[type="file"]').first().setInputFiles(invDownloaded);
     await page.waitForTimeout(45000);
@@ -249,7 +249,7 @@ async function goLiveReconciliation(page) {
   try {
     await gotoTab(page, 'Stock Intake');
     await openImportMenu(page);
-    await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+    await page.getByRole('button', { name: /^Import Sales Report$/i }).click();
     await page.waitForTimeout(1000);
     await page.locator('input[type="file"]').first().setInputFiles(salesDownloaded);
 

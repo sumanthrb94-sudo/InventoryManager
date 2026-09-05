@@ -66,10 +66,12 @@ async function gotoAdminSub(page, label) {
   await page.waitForTimeout(700);
 }
 async function openImportMenu(page) {
-  const byLabel = page.getByRole('button', { name: /^Import$/i }).first();
-  if (await byLabel.isVisible().catch(() => false)) await byLabel.click();
-  else await page.locator('button[aria-haspopup="menu"]').first().click();
-  await page.waitForTimeout(500);
+  // The Import dropdown is gone. Inventory and Sales import are now two
+  // labelled icon buttons in the header (App.tsx, behind SHOW_IMPORT_UI &&
+  // userIsAdmin), so there is no menu to open — the click that used to follow
+  // this call now targets the button directly. Kept as a no-op so the call
+  // sites read the same and the diff stays reviewable.
+  await page.waitForTimeout(200);
 }
 async function wipeAll(page) {
   await gotoTab(page, 'Stock Intake');
@@ -87,7 +89,7 @@ async function wipeAll(page) {
 async function importInventory(page, file) {
   await gotoTab(page, 'Stock Intake');
   await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+  await page.getByRole('button', { name: /^Import Inventory Report$/i }).click();
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(file);
   await page.waitForTimeout(3000);
@@ -154,7 +156,7 @@ async function run() {
 
   await gotoTab(page, 'Stock Intake');
   await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await page.getByRole('button', { name: /^Import Sales Report$/i }).click();
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(SALES_FIXTURE);
   await page.waitForTimeout(4000);
