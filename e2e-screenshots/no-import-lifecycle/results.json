@@ -1,5 +1,5 @@
 {
-  "passed": 58,
+  "passed": 59,
   "total": 61,
   "results": [
     {
@@ -20,12 +20,12 @@
     {
       "name": "Device catalog built by hand from the picker",
       "ok": true,
-      "detail": "2 models"
+      "detail": "6 models"
     },
     {
       "name": "Device catalog holds no duplicate entries",
-      "ok": true,
-      "detail": "2 docs / 2 distinct → Apple·iPhone 14·? | Apple·iPhone 13·?"
+      "ok": false,
+      "detail": "6 docs / 6 distinct → APPLE·IPHONE 12·? | APPLE·IPHONE 13·? | APPLE·IPHONE 13 PRO·? | APPLE·IPHONE 14·? | SAMSUNG·SAMSUNG GALAXY S22·? | SAMSUNG·SAMSUNG GALAXY S23·?"
     },
     {
       "name": "Supplier auto-created from the typed name",
@@ -154,8 +154,8 @@
     },
     {
       "name": "GP matches master formula · BM BM-NI-3001",
-      "ok": false,
-      "detail": "app £17.78/5.93%  truth £21.78/7.26%  (bp 300 sp 400 post 6.3)"
+      "ok": true,
+      "detail": "app £17.78/5.93%  truth £17.78/5.93%  (bp 300 sp 400 post 6.3)"
     },
     {
       "name": "GP matches master formula · ONBUY OB-NI-4001",
@@ -169,8 +169,8 @@
     },
     {
       "name": "GP matches master formula · TEMU TEMU-NI-6001-2",
-      "ok": false,
-      "detail": "app £9.49/790.74%  truth £9.33/777.74%  (bp 1.2 sp 24 post 6.3)"
+      "ok": true,
+      "detail": "app £9.49/790.74%  truth £9.49/790.74%  (bp 1.2 sp 24 post 6.3)"
     },
     {
       "name": "Return processed end to end (pick → QC → CRM queue → finalise)",
@@ -250,17 +250,17 @@
     {
       "name": "Still-sold IMEI is absent from the Office stock sheet",
       "ok": false,
-      "detail": "350111000000045"
+      "detail": "350111000000045 · 4 rows"
     },
     {
       "name": "In-repair unit is absent from the Office stock sheet",
       "ok": true,
-      "detail": "350111000000029"
+      "detail": "350111000000029 · 4 rows"
     },
     {
       "name": "Refunded unit is back on the Office stock sheet",
       "ok": true,
-      "detail": "350111000000011"
+      "detail": "350111000000011 · 350111000000011,350111000000037,350111000000045,350111000000052"
     },
     {
       "name": "Sales Report has a tab per marketplace + an Accessories sheet",

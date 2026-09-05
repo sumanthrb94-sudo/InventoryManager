@@ -628,9 +628,22 @@ async function run() {
     const models = docsOf(store, 'models');
     const key = m => `${(m.brand || '').trim().toUpperCase()}|${(m.model || m.name || '').trim().toUpperCase()}|${(m.storage || '').trim().toUpperCase()}`;
     const distinct = new Set(models.map(key));
+    // The two models this test typed must appear ONCE EACH. That is the
+    // actual claim — the picker's inline "add to catalog" reuses the entry it
+    // just created instead of minting one per row.
+    //
+    // It used to be spelled `distinct.size <= 2`, i.e. "the catalogue contains
+    // nothing but the two we typed", which only held while the shim seeded an
+    // empty catalogue. The shim now seeds one (production's survives a wipe),
+    // so that spelling failed on six pre-existing entries and said "duplicate
+    // entries" about a catalogue with none.
+    const typed = ['IPHONE 14 128GB', 'IPHONE 13 128GB'];
+    const countOfModel = name => models.filter(m =>
+      (m.model || m.name || '').trim().toUpperCase() === name).length;
+    const typedCounts = typed.map(countOfModel);
     record('Device catalog holds no duplicate entries',
-      models.length === distinct.size && distinct.size <= 2,
-      `${models.length} docs / ${distinct.size} distinct → ${models.map(m => `${m.brand || '?'}·${m.model || m.name || '?'}·${m.storage || '?'}`).join(' | ')}`);
+      models.length === distinct.size && typedCounts.every(n => n === 1),
+      `${models.length} docs / ${distinct.size} distinct · typed ${typed.map((t, i) => `${t}×${typedCounts[i]}`).join(', ')}`);
   }
   record('Supplier auto-created from the typed name',
     docsOf(store, 'suppliers').some(s => (s.name || '').toUpperCase().includes('MOBILE WHOLESALE')),
