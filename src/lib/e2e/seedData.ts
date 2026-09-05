@@ -228,10 +228,18 @@ export const E2E_SEED: Record<string, Record<string, any>[]> = {
   // before a single assertion ran. The shim was modelling a state production
   // cannot reach.
   //
-  // These are the six models the seeded units already implied, so behaviour
-  // before a wipe is unchanged. GOOGLE PIXEL 7 is deliberately absent: the
-  // sample file carries 15 rows of it, and those rows staying HELD is the
-  // fixture that exercises the gate itself.
+  // ALL SEVEN models in INVENTORY_REPORT_SAMPLE.xlsx, so the sample file
+  // imports whole.
+  //
+  // GOOGLE PIXEL 7 was left out at first, on the theory that its 15 rows
+  // staying HELD would keep the catalogue gate exercised. That was a
+  // rationalisation, not a requirement, and it cost more than it bought:
+  // e2eBatchVsMarketplace expects the file to land 110 office + 10 SHS and
+  // got 95 + 10, and the sales imports that follow could never enable
+  // Confirm, because rows referencing the 15 units that were never created
+  // are held. Eight failing assertions to preserve incidental coverage of a
+  // gate that deserves its own test, with its own fixture, rather than being
+  // a side effect of what this one omits.
   models: [
     { id: 'mdl-ip12',  brand: 'APPLE',   model: 'IPHONE 12',         ownerId: 'shared' },
     { id: 'mdl-ip13',  brand: 'APPLE',   model: 'IPHONE 13',         ownerId: 'shared' },
@@ -239,6 +247,7 @@ export const E2E_SEED: Record<string, Record<string, any>[]> = {
     { id: 'mdl-ip14',  brand: 'APPLE',   model: 'IPHONE 14',         ownerId: 'shared' },
     { id: 'mdl-s22',   brand: 'SAMSUNG', model: 'SAMSUNG GALAXY S22', ownerId: 'shared' },
     { id: 'mdl-s23',   brand: 'SAMSUNG', model: 'SAMSUNG GALAXY S23', ownerId: 'shared' },
+    { id: 'mdl-px7',   brand: 'GOOGLE',  model: 'GOOGLE PIXEL 7',      ownerId: 'shared' },
   ],
   notices: [],
   activeListings: [],
