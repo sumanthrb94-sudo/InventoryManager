@@ -1,6 +1,6 @@
 {
-  "passed": 82,
-  "total": 82,
+  "passed": 83,
+  "total": 83,
   "results": [
     {
       "name": "5 units booked in, one per marketplace",
@@ -103,6 +103,11 @@
       "detail": "49.5 vs 49.5"
     },
     {
+      "name": "BM · psf",
+      "ok": true,
+      "detail": "4.5 vs 4.5"
+    },
+    {
       "name": "BM · postageVat",
       "ok": true,
       "detail": "1.26 vs 1.26"
@@ -110,12 +115,12 @@
     {
       "name": "BM · grossProfit",
       "ok": true,
-      "detail": "57.94 vs 57.94"
+      "detail": "53.44 vs 53.44"
     },
     {
       "name": "BM · gpPercent",
       "ok": true,
-      "detail": "19.31 vs 19.31"
+      "detail": "17.81 vs 17.81"
     },
     {
       "name": "BM · VAT lines are persisted for the VAT Centre",
@@ -270,7 +275,7 @@
     {
       "name": "TEMU · commission",
       "ok": true,
-      "detail": "17.52 vs 17.52"
+      "detail": "15.05 vs 15.05"
     },
     {
       "name": "TEMU · postageVat",
@@ -280,12 +285,12 @@
     {
       "name": "TEMU · grossProfit",
       "ok": true,
-      "detail": "90.58 vs 90.58"
+      "detail": "93.05 vs 93.05"
     },
     {
       "name": "TEMU · gpPercent",
       "ok": true,
-      "detail": "37.74 vs 37.74"
+      "detail": "38.77 vs 38.77"
     },
     {
       "name": "TEMU · VAT lines are persisted for the VAT Centre",
@@ -295,7 +300,7 @@
     {
       "name": "TEMU · commissionVat",
       "ok": true,
-      "detail": "3.5 vs 3.5"
+      "detail": "3.01 vs 3.01"
     },
     {
       "name": "TEMU · totalVat",
@@ -338,19 +343,19 @@
       "detail": "O2+Q2+S2"
     },
     {
-      "name": "BM report · Marginal Tax — L2*16.67%",
+      "name": "BM report · Marginal Tax — M2*16.67%",
       "ok": true,
-      "detail": "L2*16.67%"
+      "detail": "M2*16.67%"
     },
     {
-      "name": "BM report · Commission — K2/100*11",
+      "name": "BM report · Commission — L2/100*11",
       "ok": true,
-      "detail": "K2/100*11"
+      "detail": "L2/100*11"
     },
     {
-      "name": "BM report · P. VAT — P2*20%",
+      "name": "BM report · P. VAT — R2*20%",
       "ok": true,
-      "detail": "P2*20%"
+      "detail": "R2*20%"
     },
     {
       "name": "EBAY report · Marginal Tax — L2*16.67%",
@@ -403,9 +408,9 @@
       "detail": "L2*16.67%"
     },
     {
-      "name": "TEMU report · Total VAT — Q2",
+      "name": "TEMU report · Total VAT — R2",
       "ok": true,
-      "detail": "Q2"
+      "detail": "R2"
     },
     {
       "name": "BM has no Total VAT column — P. VAT is its only VAT line",
