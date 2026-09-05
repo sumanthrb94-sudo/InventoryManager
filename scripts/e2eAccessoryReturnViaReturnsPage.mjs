@@ -296,9 +296,21 @@ async function run() {
   // postage, so read it back off the sale rather than assuming a number.
   const postage = Number(voided?.postage) || 0;
   const pvat = voided?.postageVatExempt ? 0 : (Number(voided?.postageVat) || postage * 0.2);
-  const expectedLoss = (postage + pvat) * 2;
-  record(`…and the postage loss £${expectedLoss.toFixed(2)} (refund = 2 legs)`,
-    screenText.includes(`£${expectedLoss.toFixed(2)}`), `postage=${postage} p.vat=${pvat.toFixed(2)}`);
+  const carriage = (postage + pvat) * 2;
+  // Carriage is not the whole loss. A REFUNDED sale also forfeits the fee the
+  // marketplace keeps, and this screen has to print the same number the
+  // Returns Report does — the column disagreed with the export by exactly the
+  // kept fee until feeLossOnRefund was added to it. Amazon keeps
+  // min(20% of commission, £5.00) plus VAT on a refund; a replacement keeps
+  // nothing, so this only applies on the refund route the UI creates.
+  const commission = Number(voided?.commission) || 0;
+  const feeKept = voided?.voidOutcome === 'refund'
+    ? Math.min(commission * 0.2, 5) * 1.2
+    : 0;
+  const expectedLoss = carriage + feeKept;
+  record(`…and the postage loss £${expectedLoss.toFixed(2)} (refund = 2 legs + fee kept)`,
+    screenText.includes(`£${expectedLoss.toFixed(2)}`),
+    `postage=${postage} p.vat=${pvat.toFixed(2)} carriage=${carriage.toFixed(2)} feeKept=${feeKept.toFixed(2)}`);
   await shot(page, 'returns-screen-accessory-section');
 
   // ══ 6. Both reports ══════════════════════════════════════════════════════
