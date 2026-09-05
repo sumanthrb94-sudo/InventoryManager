@@ -564,6 +564,26 @@ async function accessoryRowActions(page, sku) {
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
+
+/**
+ * Where did OFFICE[3] change state?
+ *
+ * It is sold in the bulk sale and no return is ever processed against it, so
+ * its status must stay 'sold' from that point to the end of the run. The
+ * Inventory Report says otherwise — it lists the IMEI as office stock, and the
+ * live store agrees with the report, so whatever moved it moved the unit and
+ * not just the sheet. This prints the status at each phase boundary so the
+ * step that flips it is named rather than guessed at.
+ */
+async function traceUnit(page, imei, where) {
+  const st = await dumpStore(page);
+  const u = docsOf(st, 'inventoryUnits').find(x => (x.imei || '') === imei);
+  console.log(`      [trace ${imei}] ${where}: status=${u ? u.status : 'ABSENT'}`
+    + (u && u.returnType ? ` returnType=${u.returnType}` : '')
+    + (u && u.replacedByUnitId ? ` replacedBy=${u.replacedByUnitId}` : '')
+    + (u && u.replacementForUnitId ? ` replacementFor=${u.replacementForUnitId}` : ''));
+}
+
 async function run() {
   const browsersRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
   const chromeDir = readdirSync(browsersRoot).find(d => /^chromium-\d+$/.test(d));
@@ -773,6 +793,7 @@ async function run() {
     record('Bulk sale confirms an office unit + an accessory line together', r.ok, r.why || '');
   } catch (e) { record('Bulk sale confirms an office unit + an accessory line together', false, String(e).slice(0, 120)); await dismissModals(page); }
 
+  await traceUnit(page, OFFICE[3].imei, 'after bulk sale');
   await shot(page, 'phase4-after-all-sales');
   store = await dumpStore(page);
   const sales = docsOf(store, 'sales');
@@ -811,6 +832,7 @@ async function run() {
       reason: 'Refund — battery health below 85%', tag: 'refund',
     });
     record('Return processed end to end (pick → QC → CRM queue → finalise)', r.ok, r.why || OFFICE[0].imei);
+    await traceUnit(page, OFFICE[3].imei, 'after OFFICE[0] refund return');
   } catch (e) { record('Return processed end to end (pick → QC → CRM queue → finalise)', false, String(e).slice(0, 140)); await dismissModals(page); }
 
   {
@@ -831,6 +853,7 @@ async function run() {
       reason: 'Cracked rear glass in transit', tag: 'repair',
     });
     record('Repair return processed (Send for Repair)', r.ok, r.why || OFFICE[1].imei);
+    await traceUnit(page, OFFICE[3].imei, 'after OFFICE[1] repair return');
   } catch (e) { record('Repair return processed (Send for Repair)', false, String(e).slice(0, 140)); await dismissModals(page); }
 
   {
@@ -853,6 +876,7 @@ async function run() {
       reason: 'Face ID intermittent — swapped for a like-for-like unit', tag: 'replacement',
     });
     record('Replacement return processed (with a replacement unit named)', r.ok, r.why || OFFICE[2].imei);
+    await traceUnit(page, OFFICE[3].imei, 'after OFFICE[2] replacement return');
   } catch (e) { record('Replacement return processed (with a replacement unit named)', false, String(e).slice(0, 140)); await dismissModals(page); }
 
   {
@@ -923,6 +947,7 @@ async function run() {
     record('Inventory Report Accessories sheet lists both SKU pools',
       accRows === 2, `${accRows} data rows`);
 
+    await traceUnit(page, OFFICE[3].imei, 'at Inventory Report time');
     const officeSheet = wb.worksheets.find(w => /office/i.test(w.name));
     // The IMEI COLUMN, not a substring search over the whole sheet.
     //

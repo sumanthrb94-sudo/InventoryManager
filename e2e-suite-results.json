@@ -1,5 +1,15 @@
 [
   {
+    "script": "clientOnboardingCapture.mjs",
+    "ok": false,
+    "pass": null,
+    "total": null,
+    "summary": "}",
+    "fails": [],
+    "passes": [],
+    "secs": 103
+  },
+  {
     "script": "e2eAccessoryLedger.mjs",
     "ok": true,
     "pass": 15,
@@ -109,19 +119,18 @@
   },
   {
     "script": "e2eAccessoryVisibility.mjs",
-    "ok": false,
-    "pass": 12,
+    "ok": true,
+    "pass": 13,
     "total": 13,
-    "summary": "12/13 checks passed",
-    "fails": [
-      "FAIL  Sales History shows the friendly accessory name (\"USB-C 20W Charger\")"
-    ],
+    "summary": "13/13 checks passed",
+    "fails": [],
     "passes": [
       "PASS  Accessory pool created: USB-C-20W x 5 — quantity=5",
       "PASS  Dashboard shows \"Accessory SKUs\" tile with count 1",
       "PASS  Dashboard shows the pooled stock value (£17.50 = 5 x £3.50)",
       "PASS  Dashboard shows 0 accessories sold out (nothing sold yet)",
       "PASS  Pool decremented to 3 after first sale — quantity=3",
+      "PASS  Sales History shows the friendly accessory name (\"USB-C 20W Charger\")",
       "PASS  Reports (Daily Sales / unified feed) shows the friendly accessory name",
       "PASS  Insights → Best Sellers shows the friendly accessory name",
       "PASS  Stock Alerts → Running Low includes the accessory (3 left, <= 3 threshold)",
@@ -130,7 +139,7 @@
       "PASS  Dashboard \"Accessories Sold Out\" tile now reads 1",
       "PASS  No uncaught JS errors across the whole investigation"
     ],
-    "secs": 118
+    "secs": 119
   },
   {
     "script": "e2eAdminDeepDive.mjs",
@@ -140,7 +149,7 @@
     "summary": "}",
     "fails": [],
     "passes": [],
-    "secs": 91
+    "secs": 89
   },
   {
     "script": "e2eAdminDeleteAndQc.mjs",
@@ -240,13 +249,11 @@
   {
     "script": "e2eBatchVsMarketplace.mjs",
     "ok": false,
-    "pass": 7,
+    "pass": 9,
     "total": 15,
     "summary": "}",
     "fails": [
-      "FAIL  A · inventory lands 110 office + 10 SHS — office=95 shs=10",
       "FAIL  A · combined sales workbook imports — Confirm never enabled",
-      "FAIL  B · inventory lands 110 office + 10 SHS — office=95 shs=10",
       "FAIL  B · AMAZON uploads on its own with the picker set — Confirm never enabled",
       "FAIL  B · BM uploads on its own with the picker set — Confirm never enabled",
       "FAIL  B · EBAY uploads on its own with the picker set — Confirm never enabled",
@@ -254,15 +261,17 @@
       "FAIL  B · TEMU uploads on its own with the picker set — Confirm never enabled"
     ],
     "passes": [
+      "PASS  A · inventory lands 110 office + 10 SHS — office=110 shs=10",
+      "PASS  B · inventory lands 110 office + 10 SHS — office=110 shs=10",
       "PASS  same number of sales recorded either way — batch=0 per-marketplace=0",
       "PASS  same sales per marketplace either way — AMAZON 0/0 · BM 0/0 · EBAY 0/0 · ONBUY 0/0 · TEMU 0/0",
       "PASS  sale record ids are identical — a re-upload updates, never duplicates — identical keys",
       "PASS  the same units are marked sold either way — batch sold 0 · per-marketplace 0",
-      "PASS  office stock reconciles to the same units — batch 95 · per-marketplace 95",
+      "PASS  office stock reconciles to the same units — batch 110 · per-marketplace 110",
       "PASS  SHS stock reconciles to the same units — batch 10 · per-marketplace 10",
       "PASS  revenue and cost agree to the penny — revenue 0/0 · cost 0/0"
     ],
-    "secs": 368
+    "secs": 364
   },
   {
     "script": "e2eBulkSale40.mjs",
@@ -502,47 +511,6 @@
     "fails": [],
     "passes": [],
     "secs": 0
-  },
-  {
-    "script": "e2eNewModelVatLifecycle.mjs",
-    "ok": false,
-    "pass": 25,
-    "total": 29,
-    "summary": "FAIL  Model written to the catalog — APPLE IPHONE 12, APPLE IPHONE 13, APPLE IPHONE 13 PRO, APPLE IPHONE 14, SAMSUNG SAMSUNG GALAXY S22, SAMSUNG SAMSUNG GALAXY S23, Samsung Galaxy S24 Ultra",
-    "fails": [
-      "FAIL  Wipe leaves an empty catalog to start from — 6 models",
-      "FAIL  Model written to the catalog — APPLE IPHONE 12, APPLE IPHONE 13, APPLE IPHONE 13 PRO, APPLE IPHONE 14, SAMSUNG SAMSUNG GALAXY S22, SAMSUNG SAMSUNG GALAXY S23, Samsung Galaxy S24 Ultra",
-      "FAIL  Wipe leaves an empty catalog to start from — 6 models",
-      "FAIL  Model written to the catalog — APPLE IPHONE 12, APPLE IPHONE 13, APPLE IPHONE 13 PRO, APPLE IPHONE 14, SAMSUNG SAMSUNG GALAXY S22, SAMSUNG SAMSUNG GALAXY S23, Samsung Galaxy S24 Ultra"
-    ],
-    "passes": [
-      "PASS  Employee persona active — no Admin section in the nav — MOBILEPHONEMARKET / INVENTORY MANAGER / NOTICES / STOCK INTAKE / INVENTORY / RETURNS / STO",
-      "PASS  Employee gets NO \"+ add to catalog\" pill — 0 pills",
-      "PASS  Employee is told to ask an admin — hint shown in the picker",
-      "PASS  Save stays at 0 units — nothing can be booked in — Save 0  units",
-      "PASS  No unit written while blocked — 0 units",
-      "PASS  Employee can now pick the model after a refresh — \"Galaxy S24 Ultra\" offered by the picker",
-      "PASS  Save now reports 1 ready unit — Save 1  unit",
-      "PASS  Employee booked the unit in against the new model — Galaxy S24 Ultra · 350222000000017",
-      "PASS  Sale recorded — AMAZON AMZ-VAT-9001 £899.99",
-      "PASS  Stored SP − BP matches — 279.99 vs 279.99",
-      "PASS  Stored Marginal Tax matches — 46.67 vs 46.67",
-      "PASS  Stored Commission matches (7% of SP) — 63 vs 63",
-      "PASS  Stored Postage VAT matches (20% of postage) — 1.26 vs 1.26",
-      "PASS  Stored GP matches the full VAT-inclusive chain — 147.64 vs 147.64",
-      "PASS  Stored GP% matches (GP / BP for Amazon) — 23.81 vs 23.81",
-      "PASS  the VAT breakdown is persisted on the Sale, not derived at read time — all six stored",
-      "PASS  each stored VAT field matches the independently-computed truth — commissionVat, dsf, dsfVat, totalVat, totalVatNtp, accessoryFee",
-      "PASS  Amazon tab has the full VAT column set — C. VAT, DSF, DSF. VAT, P. VAT, Total VAT, Total VAT NTP",
-      "PASS  C. VAT = Commission × 20% — N2*20% — N2*20%",
-      "PASS  DSF = Commission × 2% — N2*2% — N2*2%",
-      "PASS  DSF VAT = DSF × 20% — P2*20% — P2*20%",
-      "PASS  P. VAT = Postage × 20% — R2*20% — R2*20%",
-      "PASS  Total VAT = C.VAT + DSF VAT + P.VAT — O2+Q2+S2 — O2+Q2+S2",
-      "PASS  Total VAT NTP = Marginal Tax − Total VAT — M2-U2 — M2-U2",
-      "PASS  Report carries the resolved model name — Galaxy S24 Ultra"
-    ],
-    "secs": 175
   },
   {
     "script": "e2eNoImportLifecycle.mjs",
@@ -1076,5 +1044,17 @@
     "fails": [],
     "passes": [],
     "secs": 71
+  },
+  {
+    "script": "e2eWipeReuploadReconcile.mjs",
+    "ok": false,
+    "pass": 1,
+    "total": 1,
+    "summary": "[TIMED OUT]",
+    "fails": [],
+    "passes": [
+      "PASS  starts from a genuinely empty store"
+    ],
+    "secs": 900
   }
 ]
