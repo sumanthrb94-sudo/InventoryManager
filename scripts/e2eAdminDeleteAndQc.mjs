@@ -145,6 +145,43 @@ async function run() {
     `${officeBefore} → ${officeAfter}`);
   await shot(page, 'office-count-after-delete');
 
+  // ── A2. The deletion left a record behind ────────────────────────────────
+  //
+  // The whole point of the archive: the unit is gone, but WHO removed it,
+  // WHAT it was and WHY must survive. Read the shim's own store rather than
+  // any screen, so this passes or fails on what was actually written.
+  const archive = await page.evaluate(() => {
+    try {
+      const raw = sessionStorage.getItem('__e2e_firestore__');
+      return raw ? Object.values(JSON.parse(raw).deletedUnits || {}) : [];
+    } catch { return []; }
+  });
+  record('the deleted unit leaves a tombstone in deletedUnits',
+    archive.length === 1, `${archive.length} archive record(s)`);
+
+  const rec = archive[0] || {};
+  record('the tombstone carries who, what, when and why',
+    !!rec.imei && !!rec.model && !!rec.deletedBy && !!rec.deletedAt
+      && rec.reason === dialogAnswer && rec.source === 'office' && !rec.voided,
+    `${rec.imei || '—'} · ${rec.model || '—'} · by ${rec.deletedBy || '—'} · "${rec.reason || ''}"`);
+
+  // The forensic copy — every field of the unit, not just the six the notice
+  // used to carry. Buy price is the one the client's loss figures depend on.
+  record('the tombstone carries the full unit snapshot',
+    !!rec.snapshot && typeof rec.snapshot === 'object'
+      && rec.snapshot.imei === rec.imei && rec.snapshot.buyPrice !== undefined,
+    `snapshot fields: ${rec.snapshot ? Object.keys(rec.snapshot).length : 0}`);
+
+  // Searchable by the one identifier an operator has in hand.
+  const noticeHasImei = await page.evaluate((imei) => {
+    try {
+      const raw = sessionStorage.getItem('__e2e_firestore__');
+      const notices = raw ? Object.values(JSON.parse(raw).notices || {}) : [];
+      return notices.some(n => String(n.content || '').includes(imei));
+    } catch { return false; }
+  }, rec.imei || '__none__');
+  record('the notice board post carries the IMEI', noticeHasImei, rec.imei || '—');
+
   // ── B. A cancelled prompt must not delete ────────────────────────────────
   await page.getByText('ALL OFFICE STOCK').first().click();
   await page.waitForTimeout(1000);
@@ -162,6 +199,18 @@ async function run() {
   const officeAfterCancel = await kpi(page, 'ALL OFFICE STOCK');
   record('cancelling the reason prompt deletes nothing',
     officeAfterCancel === officeAfter, `${officeAfter} → ${officeAfterCancel}`);
+
+  // A cancelled delete must not leave a tombstone either — an archive that
+  // logs deletions that never happened is as misleading as one that misses
+  // deletions that did.
+  const archiveAfterCancel = await page.evaluate(() => {
+    try {
+      const raw = sessionStorage.getItem('__e2e_firestore__');
+      return raw ? Object.values(JSON.parse(raw).deletedUnits || {}).length : 0;
+    } catch { return -1; }
+  });
+  record('a cancelled delete writes no tombstone',
+    archiveAfterCancel === 1, `${archiveAfterCancel} archive record(s)`);
 
   // ── C. SHS units are deletable too ───────────────────────────────────────
   const shsBefore = await kpi(page, 'SHS STOCK');
