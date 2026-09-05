@@ -256,6 +256,67 @@ export interface InventoryEvent {
 }
 
 /**
+ * DeletedUnitRecord — the tombstone written before a unit is destroyed.
+ *
+ * WHY THIS EXISTS
+ *
+ * Deleting an office unit hard-deletes the Firestore doc. Before this record,
+ * the only trace was two free-text strings (an inventoryEvents row and a
+ * notices post) carrying six of the unit's ~60 fields, and neither carried the
+ * IMEI as a field — so a deleted handset could not be looked up by the one
+ * identifier an operator actually searches. Worse, the delete happened BEFORE
+ * either was written: a crash in between lost the unit with no trace at all.
+ *
+ * This is the durable, queryable record. It is written FIRST, and the delete
+ * only proceeds if it lands — see services/deletedUnitArchive.ts.
+ *
+ * APPEND-ONLY, BY RULE. firestore.rules denies delete outright and permits an
+ * update only to the two void fields below. Nobody — admin included — can
+ * erase who deleted what and when. It is also kept out of every wipe path
+ * (ResetDataModal's PROTECTED_COLLECTIONS, and wipeScopes never names it).
+ */
+export interface DeletedUnitRecord {
+  /** `del_{IMEI}_{ms}_{rand6}`. The random suffix is load-bearing: dbService
+   *  writes with `setDoc(..., {merge:true})`, so two deletions colliding on an
+   *  id would silently overwrite one another rather than error. */
+  id: string;
+  /** Normalised (zero-width stripped, uppercased) IMEI — the lookup key. */
+  imei: string;
+  /** The unit's original Firestore doc id. Equals the IMEI for office stock. */
+  unitId: string;
+  /** Which delete path produced this. Only 'office' is archived today. */
+  source: 'office' | 'shs_unit' | 'shs_aggregate';
+  /** Exactly what the operator typed, including junk like '.' — the archive
+   *  records what happened, it does not improve it. Renderers decide how to
+   *  present a blank or meaningless reason. */
+  reason: string;
+  deletedAt: string;
+  deletedBy: string;
+  // Denormalised so the table, the CSV and the intake warning read these
+  // directly and never walk into `snapshot`.
+  model: string;
+  storage?: string;
+  colour?: string;
+  grade?: string;
+  supplierName?: string;
+  supplierId?: string;
+  buyPrice?: number;
+  status?: string;
+  dateIn?: string;
+  /** The whole unit as it stood, for forensics. Recursively stripped of
+   *  `undefined` — dbService's cleanForFirestore is shallow and Firestore
+   *  rejects nested undefined, which would fail the write silently. */
+  snapshot: Record<string, unknown>;
+  /** Set when the archive landed but the delete that followed did NOT. The
+   *  record stays (it is append-only) but must not be read as a deletion. */
+  voided?: boolean;
+  voidedReason?: string;
+  ownerId: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+/**
  * DailyUpdate — a date-stamped operational update from the ops team.
  */
 export interface DailyUpdate {

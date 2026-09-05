@@ -10,7 +10,11 @@ interface Props { onClose: () => void; }
 // admin-curated team data, not operational records. Adding a new
 // collection? Default to PROTECTED unless wiping it on a reset is
 // clearly the right behaviour.
-const PROTECTED_COLLECTIONS = ['notices', 'models'] as const;
+// `deletedUnits` is the deletion log and is protected here as well as in
+// firestore.rules (which denies delete to everyone, admins included). Belt and
+// braces on purpose: a reset that erased the record of what was deleted would
+// destroy exactly the history this app keeps in order to answer for itself.
+const PROTECTED_COLLECTIONS = ['notices', 'models', 'deletedUnits'] as const;
 
 const COLLECTIONS = [
   'inventoryUnits',

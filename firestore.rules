@@ -182,6 +182,33 @@ service cloud.firestore {
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
+    // ── deletedUnits — the deletion log. INDELIBLE BY RULE. ─────────────────
+    //
+    // Operator's requirement, 2026-09-05: "nobody should be able to delete the
+    // log of who, what and when a unit was deleted."
+    //
+    // So `delete` is denied to EVERYONE, admins included — this is the only
+    // collection in this file that no client role can remove. `update` is not
+    // an open door either: the sole legitimate edit is marking a record void
+    // when the archive write landed but the delete that followed failed
+    // (services/deletedUnitArchive.ts voidArchiveRecord), so the rule permits
+    // a write that touches nothing except those two fields plus updatedAt.
+    // Reason, actor, timestamp, IMEI and the unit snapshot cannot be rewritten
+    // after the fact.
+    //
+    // create is gated on isAdmin() to match `inventoryUnits`' own
+    // `allow delete: if isAdmin()` — the two must agree, or an operator who
+    // can delete a unit would be unable to record having done so. Because
+    // archiving is fail-closed, a mismatch here does not lose data quietly:
+    // it stops the delete outright.
+    match /deletedUnits/{recordId} {
+      allow read:   if isSignedIn();
+      allow create: if isAdmin() && ownsShared();
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['voided', 'voidedReason', 'updatedAt']);
+      allow delete: if false;
+    }
     match /importBatches/{batchId} {
       allow read:   if isSignedIn();
       allow create: if isSignedIn() && ownsShared();

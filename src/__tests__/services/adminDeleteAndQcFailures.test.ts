@@ -82,6 +82,85 @@ describe('admin deletes a unit from inventory', () => {
     expect(notices[0].content).toContain('Damaged beyond resale');
     expect(notices[0].content).toContain('admin@inventorymanager.com');
     expect(notices[0].createdBy).toBe('admin@inventorymanager.com');
+    // …and the IMEI, so the notice board can be searched by the one
+    // identifier an operator actually has in hand.
+    expect(notices[0].content).toContain('350100000000000');
+
+    // A deletion the app can still answer questions about a year later.
+    const archive = all<any>('deletedUnits');
+    expect(archive).toHaveLength(1);
+    expect(archive[0].imei).toBe('350100000000000');
+    expect(archive[0].reason).toBe('Damaged beyond resale');
+    expect(archive[0].deletedBy).toBe('admin@inventorymanager.com');
+    expect(archive[0].source).toBe('office');
+    expect(archive[0].voided).toBeUndefined();
+    expect(archive[0].snapshot.buyPrice).toBe(320);
+  });
+
+  it('writes the archive BEFORE the unit is destroyed', async () => {
+    // Order, not just presence. The old code deleted first and wrote the
+    // audit trail afterwards, so a crash in between lost the unit with no
+    // record at all. This asserts the tombstone already exists at the moment
+    // the delete is issued.
+    const unit = makeUnit();
+    seed('inventoryUnits', [unit]);
+    const { dbService } = await import('../../lib/dbService');
+    const original = dbService.delete;
+    let archiveAtDeleteTime = -1;
+    (dbService as any).delete = async (name: string, id: string) => {
+      archiveAtDeleteTime = all('deletedUnits').length;
+      return original.call(dbService, name, id);
+    };
+
+    const res = await deleteOfficeUnit(unit, 'QC failed');
+    (dbService as any).delete = original;
+
+    expect(res.ok).toBe(true);
+    expect(archiveAtDeleteTime).toBe(1);
+  });
+
+  it('does NOT delete the unit when the archive cannot be written', async () => {
+    // Fail closed. A deletion that cannot be recorded does not happen —
+    // this is the whole point of the archive, and the case that would
+    // otherwise fail silently (permission-denied on a rules file that has
+    // not been deployed yet).
+    const unit = makeUnit();
+    seed('inventoryUnits', [unit]);
+    const { dbService } = await import('../../lib/dbService');
+    const original = dbService.create;
+    (dbService as any).create = async (name: string, id: string, data: any) => {
+      if (name === 'deletedUnits') {
+        const err: any = new Error('Missing or insufficient permissions.');
+        err.code = 'permission-denied';
+        throw err;
+      }
+      return original.call(dbService, name, id, data);
+    };
+
+    const res = await deleteOfficeUnit(unit, 'QC failed');
+    (dbService as any).create = original;
+
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/NOT deleted/i);
+    expect(all('inventoryUnits')).toHaveLength(1);
+    expect(all('notices')).toHaveLength(0);
+  });
+
+  it('records each removal separately when a unit is deleted, re-added and deleted again', async () => {
+    const unit = makeUnit();
+    seed('inventoryUnits', [unit]);
+    expect((await deleteOfficeUnit(unit, 'first removal — QC failed')).ok).toBe(true);
+
+    // Same IMEI back in stock, then gone again.
+    seed('inventoryUnits', [unit]);
+    expect((await deleteOfficeUnit(unit, 'second removal — cracked back')).ok).toBe(true);
+
+    const archive = all<any>('deletedUnits');
+    expect(archive).toHaveLength(2);
+    expect(archive.map(r => r.reason).sort()).toEqual([
+      'first removal — QC failed',
+      'second removal — cracked back',
+    ]);
   });
 
   it('refuses a non-admin and leaves the unit untouched', async () => {
@@ -138,6 +217,16 @@ describe('admin deletes a unit from inventory', () => {
     const res = await deleteOfficeUnit(unit, 'network flake');
     expect(res.ok).toBe(false);
     expect(res.message).toMatch(/permission-denied/);
+
+    // The archive landed but the delete did not, so the record must not read
+    // as a deletion — the unit is still in stock, and the intake screens
+    // would otherwise warn about it forever. It is voided, never removed:
+    // the collection is append-only.
+    const archive = all<any>('deletedUnits');
+    expect(archive).toHaveLength(1);
+    expect(archive[0].voided).toBe(true);
+    expect(archive[0].voidedReason).toMatch(/permission-denied/);
+    expect(all('inventoryUnits')).toHaveLength(1);
 
     (dbService as any).delete = original;
   });

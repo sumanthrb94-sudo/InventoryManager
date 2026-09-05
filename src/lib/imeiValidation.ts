@@ -179,6 +179,21 @@ export function isPlaceholderImeiText(raw: string | undefined | null): boolean {
 }
 
 /**
+ * The lookup key for an IMEI: zero-width characters stripped, trimmed, upper.
+ *
+ * Scanners and spreadsheet pastes carry invisible passengers — zero-width
+ * space/joiner, BOM, non-breaking space — and an IMEI that looks identical on
+ * screen then fails to match an existing record. AddStockManualModal and
+ * BulkOrderModal each grew their own inline copy of this expression; they are
+ * the two screens that MUST agree on what "the same IMEI" means, so the
+ * expression lives here once. Doc ids are the uppercased IMEI, so this is also
+ * what turns typed input into a document key.
+ */
+export function normaliseImeiKey(raw: string | undefined | null): string {
+  return (raw ?? '').replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '').trim().toUpperCase();
+}
+
+/**
  * Shared copy used by every form when the IMEI is missing or invalid.
  * Two variants — one generic, one Apple-aware — so the form can tell the
  * operator exactly what's accepted on the row they're on.

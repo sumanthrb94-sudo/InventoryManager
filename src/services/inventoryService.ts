@@ -30,6 +30,7 @@ import { auth, isAdmin } from '../lib/firebase';
 import { calcSaleFinancials } from '../lib/platforms';
 import { postageVatOf } from '../lib/returnLoss';
 import { sanitiseFsIdSegment } from '../lib/firestoreIds';
+import { archiveDeletedUnit, voidArchiveRecord } from './deletedUnitArchive';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -986,6 +987,17 @@ export async function deleteOfficeUnit(
     return { ok: false, error: 'write_failed', message: 'Cannot delete a sold unit. Void the sale first.' };
   }
 
+  // ── ARCHIVE FIRST, FAIL CLOSED ──────────────────────────────────────────
+  //
+  // This used to delete the doc and only THEN write the notice and the event,
+  // so a crash in between destroyed the unit with no record at all. The order
+  // is now inverted and the archive is a precondition: a deletion that cannot
+  // be recorded does not happen. See services/deletedUnitArchive.ts.
+  const archived = await archiveDeletedUnit({ unit, reason, source: 'office' });
+  if (!archived.ok) {
+    return { ok: false, error: 'write_failed', message: archived.message || 'Could not record the deletion. Unit NOT deleted.' };
+  }
+
   try {
     // Delete the unit doc
     await dbService.delete('inventoryUnits', unit.id);
@@ -997,6 +1009,10 @@ export async function deleteOfficeUnit(
       unit.model,
       unit.colour,
       unit.storage,
+      // The IMEI makes the notice board searchable by the one identifier an
+      // operator actually has in hand. It was absent, so a notice could never
+      // be tied back to a specific handset.
+      unit.imei ? `IMEI ${unit.imei}` : undefined,
       unit.supplierName ? `supplier: ${unit.supplierName}` : undefined,
       `— ${reason}`,
       `(by ${adminEmail} · ${now.slice(0, 10)})`,
@@ -1023,6 +1039,10 @@ export async function deleteOfficeUnit(
 
     return { ok: true, id: unit.id };
   } catch (err: any) {
+    // The archive landed but the delete did not. The record stays — the
+    // collection is append-only — but it must not read as a deletion, or the
+    // intake screens would warn forever about a unit still sitting in stock.
+    if (archived.id) await voidArchiveRecord(archived.id, err?.message || 'unit delete failed');
     return { ok: false, error: 'write_failed', message: err?.message || 'Delete failed.' };
   }
 }

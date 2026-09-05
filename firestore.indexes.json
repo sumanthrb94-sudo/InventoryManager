@@ -89,6 +89,14 @@
         { "fieldPath": "imei", "order": "ASCENDING" },
         { "fieldPath": "saleDate", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "deletedUnits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "imei", "order": "ASCENDING" },
+        { "fieldPath": "deletedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
