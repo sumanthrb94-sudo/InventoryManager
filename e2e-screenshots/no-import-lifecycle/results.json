@@ -1,6 +1,6 @@
 {
-  "passed": 62,
-  "total": 62,
+  "passed": 58,
+  "total": 61,
   "results": [
     {
       "name": "Wipe clears units / sales / accessories / suppliers / aggregates",
@@ -125,17 +125,17 @@
     {
       "name": "Sale docs written for every completed sale",
       "ok": true,
-      "detail": "7 sale docs"
+      "detail": "6 sale docs"
     },
     {
       "name": "Sold units flipped to status=sold",
       "ok": true,
-      "detail": "5 sold units vs 5 unit-backed sales (7 sales total)"
+      "detail": "4 sold units vs 4 unit-backed sales (6 sales total)"
     },
     {
       "name": "Sold units carry stockSource provenance",
       "ok": true,
-      "detail": "office,office,office,office,shs"
+      "detail": "office,office,office,shs"
     },
     {
       "name": "SHS unit sold in-app learned its IMEI",
@@ -154,8 +154,8 @@
     },
     {
       "name": "GP matches master formula · BM BM-NI-3001",
-      "ok": true,
-      "detail": "app £21.78/7.26%  truth £21.78/7.26%  (bp 300 sp 400 post 6.3)"
+      "ok": false,
+      "detail": "app £17.78/5.93%  truth £21.78/7.26%  (bp 300 sp 400 post 6.3)"
     },
     {
       "name": "GP matches master formula · ONBUY OB-NI-4001",
@@ -168,14 +168,9 @@
       "detail": "app £16.33/155.55%  truth £16.33/155.55%  (bp 10.5 sp 45 post 6.3)"
     },
     {
-      "name": "GP matches master formula · TEMU TEMU-NI-6001-1",
-      "ok": true,
-      "detail": "app £-2.94/-0.96%  truth £-2.94/-0.96%  (bp 305 sp 330 post 6.3)"
-    },
-    {
       "name": "GP matches master formula · TEMU TEMU-NI-6001-2",
-      "ok": true,
-      "detail": "app £9.33/777.74%  truth £9.33/777.74%  (bp 1.2 sp 24 post 6.3)"
+      "ok": false,
+      "detail": "app £9.49/790.74%  truth £9.33/777.74%  (bp 1.2 sp 24 post 6.3)"
     },
     {
       "name": "Return processed end to end (pick → QC → CRM queue → finalise)",
@@ -205,7 +200,7 @@
     {
       "name": "Repair stamps voidOutcome=repair on the sale (drives 2-leg postage loss)",
       "ok": true,
-      "detail": "voidedAt=2026-08-08 outcome=repair"
+      "detail": "voidedAt=2026-09-05 outcome=repair"
     },
     {
       "name": "Replacement return processed (with a replacement unit named)",
@@ -215,7 +210,7 @@
     {
       "name": "Replacement stamps voidOutcome=replacement (drives 3-leg postage loss)",
       "ok": true,
-      "detail": "voidedAt=2026-08-08 outcome=replacement"
+      "detail": "voidedAt=2026-09-05 outcome=replacement"
     },
     {
       "name": "Returned unit links to the replacement that shipped in its place",
@@ -240,7 +235,7 @@
     {
       "name": "Inventory Report Office sheet matches live available stock",
       "ok": true,
-      "detail": "report 3 vs store 3"
+      "detail": "report 4 vs store 4"
     },
     {
       "name": "Inventory Report SHS sheet matches live incoming holdings",
@@ -254,7 +249,7 @@
     },
     {
       "name": "Still-sold IMEI is absent from the Office stock sheet",
-      "ok": true,
+      "ok": false,
       "detail": "350111000000045"
     },
     {

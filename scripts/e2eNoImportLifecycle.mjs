@@ -192,7 +192,14 @@ function groundTruthGP({ marketplace, bp, sp, postage }) {
     case 'BM': {
       // Customer care is £8.99 per the operator's 2026-08 master, not 9.99.
       const com = sp * 0.11;
-      gp = c - marTax - com - 8.99 - postage - pVat - acc;
+      // PSF — Payment Seller Fee, SP x 1%, in force from 2026-08-15
+      // (DEFAULT_MARKETPLACE_FEES.BM.psfPct). This truth was frozen at the
+      // schedule before it existed, so every BM row here read exactly SP x 1%
+      // high — £4.00 on a £400 phone — and reported the APP as wrong. The app
+      // is date-aware: PRE_2026_08_15_FEES puts psfPct back to 0 for sales
+      // dated before the cutoff, and these fixtures are dated today.
+      const psf = sp * 0.01;
+      gp = c - marTax - com - 8.99 - psf - postage - pVat - acc;
       break;
     }
     case 'EBAY': {
@@ -218,8 +225,12 @@ function groundTruthGP({ marketplace, bp, sp, postage }) {
       break;
     }
     case 'TEMU': {
-      // 4.61%, the rate in the operator's Temu master (`=H2*4.61%`).
-      const com = sp * 0.0461;
+      // 3.96% from 2026-08-14, not the July master's 4.61%: the client's
+      // current report computes every Temu Commission cell as `=H2*3.96%`.
+      // Holding the old rate here charged 0.65% of SP too much commission and
+      // read as an app bug. Pre-cutoff sales still use 4.61% in the app via
+      // PRE_2026_08_15_FEES; these fixtures are dated today.
+      const com = sp * 0.0396;
       gp = c - marTax - com - postage - pVat - acc;
       break;
     }
@@ -900,15 +911,34 @@ async function run() {
       accRows === 2, `${accRows} data rows`);
 
     const officeSheet = wb.worksheets.find(w => /office/i.test(w.name));
-    const officeText = JSON.stringify(officeSheet ? officeSheet.getSheetValues() : []);
+    // The IMEI COLUMN, not a substring search over the whole sheet.
+    //
+    // The sheet also carries a Notes column, and a replacement return writes
+    // the other handset's IMEI into it — so "is this string anywhere in the
+    // sheet" answered yes for a unit that has no row at all, and reported a
+    // reporting bug that did not exist. What the assertion means is "this
+    // unit is not LISTED AS STOCK", and that is a question about one column.
+    const officeImeis = (() => {
+      if (!officeSheet) return [];
+      const header = officeSheet.getRow(1).values.map(v => String(v ?? '').trim().toUpperCase());
+      const col = header.indexOf('IMEI');
+      if (col < 0) return [];
+      const out = [];
+      officeSheet.eachRow((row, i) => {
+        if (i === 1) return;
+        const v = String(row.values[col] ?? '').trim();
+        if (v) out.push(v);
+      });
+      return out;
+    })();
     // Still-sold and in-repair units must NOT read as available stock…
     record('Still-sold IMEI is absent from the Office stock sheet',
-      !officeText.includes(OFFICE[3].imei), OFFICE[3].imei);
+      !officeImeis.includes(OFFICE[3].imei), `${OFFICE[3].imei} · ${officeImeis.length} rows`);
     record('In-repair unit is absent from the Office stock sheet',
-      !officeText.includes(OFFICE[1].imei), OFFICE[1].imei);
+      !officeImeis.includes(OFFICE[1].imei), `${OFFICE[1].imei} · ${officeImeis.length} rows`);
     // …but the Back-to-Inventory unit must be back ON it.
     record('Refunded unit is back on the Office stock sheet',
-      officeText.includes(OFFICE[0].imei), OFFICE[0].imei);
+      officeImeis.includes(OFFICE[0].imei), `${OFFICE[0].imei} · ${officeImeis.join(',')}`);
   } catch (e) { record('Inventory Report download', false, String(e).slice(0, 140)); }
 
   // Sales Report — the accessory line must appear BOTH on its marketplace
