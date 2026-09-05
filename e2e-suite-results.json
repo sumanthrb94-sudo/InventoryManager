@@ -314,5 +314,15 @@
     "fails": [],
     "passes": [],
     "secs": 49
+  },
+  {
+    "script": "e2eFillableReportShots.mjs",
+    "ok": false,
+    "pass": null,
+    "total": null,
+    "summary": "Node.js v22.22.2",
+    "fails": [],
+    "passes": [],
+    "secs": 49
   }
 ]
