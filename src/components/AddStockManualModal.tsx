@@ -36,7 +36,7 @@ import {
 } from '../lib/imeiValidation';
 import { SimTypeSelectCompact } from './FormSelects';
 import { parseBrandModelStorage } from '../lib/modelStorage';
-import { GRADE_OPTIONS, STORAGE_OPTIONS } from '../lib/unitConstants';
+import { GRADE_OPTIONS, STORAGE_OPTIONS, COLOUR_PRESETS, type ColourPreset } from '../lib/unitConstants';
 import { addUnitManual, ensureSupplier, upsertAccessoryStock } from '../services';
 import AccessoryComboBox from './AccessoryComboBox';
 import { buildAccessoryCatalog, accessoryEntryFor } from '../lib/accessoryCatalog';
@@ -96,13 +96,14 @@ interface StockRow {
   colourOther?: boolean;
 }
 
-/** Closed set of colour presets shown in the Add Stock dropdown. Anything
- *  outside this list lands the row on "Other" with a freeform input — same
- *  pattern the operator uses on paper. Comparison is case-insensitive on
- *  read; values written back to the row preserve the canonical casing
- *  here (so two paste sources can't fork into "BLACK" vs "Black" buckets). */
-const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue'] as const;
-type ColourPreset = typeof COLOUR_PRESETS[number];
+/** Colour presets shown in the Add Stock dropdown. Anything outside this
+ *  list lands the row on "Other" with a freeform input — same pattern the
+ *  operator uses on paper. Comparison is case-insensitive on read; values
+ *  written back to the row preserve the canonical casing from the constant
+ *  (so two paste sources can't fork into "BLACK" vs "Black" buckets).
+ *
+ *  Imported, not redeclared: this screen and Bulk Order each held a private
+ *  copy, exactly the drift unitConstants exists to prevent. */
 
 /** True when `s` matches one of COLOUR_PRESETS case-insensitively. */
 function isPresetColour(s: string): boolean {

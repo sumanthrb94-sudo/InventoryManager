@@ -38,7 +38,7 @@ import { parseBrandModelStorage } from '../lib/modelStorage';
 import { ensureSupplier } from '../services';
 import { logInventoryEvent } from '../lib/inventoryEvents';
 import { generateBatchStickerSheet } from '../lib/stickerPdf';
-import { GRADE_OPTIONS, SIM_TYPE_OPTIONS } from '../lib/unitConstants';
+import { GRADE_OPTIONS, SIM_TYPE_OPTIONS, COLOUR_PRESETS } from '../lib/unitConstants';
 import DeviceComboBox from './DeviceComboBox';
 import IMEIScanner from './IMEIScanner';
 import { normaliseCatalogEntry } from '../lib/migrations/normaliseModelCatalog';
@@ -112,7 +112,8 @@ interface UnitSlot {
   skipped?: boolean;
 }
 
-const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue'] as const;
+// Colours come from unitConstants for the same reason grades do — a private
+// copy here drifted from Add Stock's and split the same data two ways.
 // Grades come from unitConstants so every intake path offers the same
 // list — a private copy here drifted by casing and split the data.
 const GRADES = GRADE_OPTIONS;
