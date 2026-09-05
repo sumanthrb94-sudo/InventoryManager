@@ -941,5 +941,85 @@
     ],
     "passes": [],
     "secs": 48
+  },
+  {
+    "script": "e2eTemplateFillAndUpload.mjs",
+    "ok": false,
+    "pass": 4,
+    "total": 18,
+    "summary": "4/18 checks passed",
+    "fails": [
+      "FAIL  A · the filled inventory template imports — Confirm never enabled",
+      "FAIL  A · every typed row lands, split office / SHS as typed — office=0/34 shs=0/6",
+      "FAIL  A · filled AMAZON template imports with no manual completion — Confirm never enabled",
+      "FAIL  A · filled BM template imports with no manual completion — Confirm never enabled",
+      "FAIL  A · filled EBAY template imports with no manual completion — Confirm never enabled",
+      "FAIL  A · filled ONBUY template imports with no manual completion — Confirm never enabled",
+      "FAIL  A · filled TEMU template imports with no manual completion — Confirm never enabled",
+      "FAIL  A · sales reconcile against the stock that was typed in — sales=0/25 sold=0/25",
+      "FAIL  A · office stock drops by exactly the units sold from the shelf — 34 → 0 (expected 10)",
+      "FAIL  A · the supplier-shipped sale drops SHS, not office — 6 → 0 (expected 5)",
+      "FAIL  B · the filled combined workbook imports — Confirm never enabled",
+      "FAIL  C · the filled SHS template imports",
+      "FAIL  C · every row lands as supplier-held, none on the office shelf — shs=0/6 office=0",
+      "FAIL  D · an untouched template previews only its example rows, not 500 blanks — preview offers to load ? rows"
+    ],
+    "passes": [
+      "PASS  A · the template README sheet is ignored, not read as data — no README rows in the preview",
+      "PASS  B · combined and per-channel land on the same numbers — office 0/0 · shs 0/0 · sold 0/0 · sales 0/0",
+      "PASS  D · nothing is written before the preview is confirmed — office=0 while the preview is open",
+      "PASS  no uncaught JS errors across all four passes"
+    ],
+    "secs": 574
+  },
+  {
+    "script": "e2eTemuMarketplace.mjs",
+    "ok": false,
+    "pass": null,
+    "total": null,
+    "summary": "}",
+    "fails": [],
+    "passes": [],
+    "secs": 71
+  },
+  {
+    "script": "e2eTodaysFixes.mjs",
+    "ok": false,
+    "pass": null,
+    "total": null,
+    "summary": "}",
+    "fails": [],
+    "passes": [],
+    "secs": 72
+  },
+  {
+    "script": "e2eTwoStageSale.mjs",
+    "ok": true,
+    "pass": 19,
+    "total": 19,
+    "summary": "================================================================",
+    "fails": [],
+    "passes": [
+      "PASS  found available stock to sell by model — IPHONE 13 · 350000000000101",
+      "PASS  the grid defaults to Model only",
+      "PASS  the row carries its own \"Update Unit\" action",
+      "PASS  it is enabled once the row is complete",
+      "PASS  a sale document was created — AMAZON__TWOSTAGE-1__E2E-TWOSTAGE-1",
+      "PASS  it is flagged awaiting an IMEI",
+      "PASS  it has NO unit linked — unitId=— imei=\"\"",
+      "PASS  NO unit was marked sold — stock is untouched — 9 → 9 available",
+      "PASS  the sale still carries commission and VAT — commission £27.93 · totalVat £6.96",
+      "PASS  its buy price is marked provisional — BP £318",
+      "PASS  the updated unit stays in Mark Multiple Sold, with its own action",
+      "PASS  the IMEI dropdown is filtered to that model — 2 offered · 2 of that model in stock",
+      "PASS  the sale is no longer awaiting an IMEI",
+      "PASS  an IMEI is now attached — 350000000000101",
+      "PASS  the buy price is no longer provisional — BP £320",
+      "PASS  that unit is now marked sold — 350000000000101 → sold",
+      "PASS  exactly ONE unit left stock across both stages — 9 → 8",
+      "PASS  one sale document, not two — 11 → 12",
+      "PASS  the row has left the grid now it is complete"
+    ],
+    "secs": 24
   }
 ]
