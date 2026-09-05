@@ -263,5 +263,56 @@
       "PASS  revenue and cost agree to the penny — revenue 0/0 · cost 0/0"
     ],
     "secs": 368
+  },
+  {
+    "script": "e2eBulkSale40.mjs",
+    "ok": false,
+    "pass": 12,
+    "total": 12,
+    "summary": "[TIMED OUT]",
+    "fails": [],
+    "passes": [
+      "PASS  seed: 20 office + 12 SHS units, 8 accessory SKUs present",
+      "PASS  batch 1: all 10 sales recorded — 10 sold",
+      "PASS  batch 2: all 10 sales recorded — 10 sold",
+      "PASS  batch 3: all 10 sales recorded — 10 sold",
+      "PASS  batch 4: all 10 sales recorded — 10 sold",
+      "PASS  all 20 office units flipped to sold with stockSource=office",
+      "PASS  all 12 SHS units flipped to sold, IMEI stamped, stockSource=shs",
+      "PASS  all 8 accessory pools decremented by 1 (5 → 4)",
+      "PASS  40 sale docs written for the batch — found 40",
+      "PASS  32 unit sales + 8 accessory sales among the 40 — unit=32 accessory=8",
+      "PASS  Dashboard mentions the bulk-sold model (IPHONE 13)",
+      "PASS  Dashboard mentions a bulk-sold accessory name"
+    ],
+    "secs": 900
+  },
+  {
+    "script": "e2eDeviceComboWidth.mjs",
+    "ok": true,
+    "pass": 7,
+    "total": 7,
+    "summary": "7/7 checks passed",
+    "fails": [],
+    "passes": [
+      "PASS  sanity: the audit column really is narrow — input width 220px",
+      "PASS  the suggestion panel opens",
+      "PASS  the panel is widened past the narrow input, not clamped to it — panel width 420px vs input 220px",
+      "PASS  the widened panel still fits inside the viewport — panel right edge 759px vs viewport 1280px",
+      "PASS  no suggestion row text is clipped by its own box — 4 text nodes checked, all fit",
+      "PASS  a real model name is fully readable in the first suggestion — \"Apple·IPHONE 12\\n\\n128GB · 64GB · MIDNIGHT, GRAPHITE · grade A · £219.35\\n\\n25 IN STOCK\"",
+      "PASS  no uncaught JS errors"
+    ],
+    "secs": 60
+  },
+  {
+    "script": "e2eExportAllTimeReports.mjs",
+    "ok": false,
+    "pass": null,
+    "total": null,
+    "summary": "}",
+    "fails": [],
+    "passes": [],
+    "secs": 49
   }
 ]
