@@ -338,9 +338,16 @@ async function run() {
         `got ${found.getCell(10).value}`);
       record('…with outcome Refund and the operator\'s reason',
         found.getCell(11).value === 'Refund' && found.getCell(12).value === REASON);
-      record('…and 2 shipping legs costed at the same £ the screen showed',
-        found.getCell(15).value === 2 && Math.abs(Number(found.getCell(16).value) - expectedLoss) < 0.01,
-        `legs=${found.getCell(15).value} loss=${found.getCell(16).value}`);
+      // CARRIAGE, not the screen's total — and the difference is the point.
+      // The report keeps Postage Loss and Fees Kept in separate columns and
+      // combines them in its own Return Cost formula, so a kept marketplace
+      // fee must NOT be folded into a shipping-cost column. The Returns
+      // screen shows the combined loss because that is the number an
+      // operator asks for. Both are right; asserting they are equal is what
+      // was wrong, and it hid behind the screen check reading low.
+      record('…and 2 shipping legs costed at the carriage figure (fees kept sit in their own column)',
+        found.getCell(15).value === 2 && Math.abs(Number(found.getCell(16).value) - carriage) < 0.01,
+        `legs=${found.getCell(15).value} postageLoss=${found.getCell(16).value} carriage=${carriage.toFixed(2)} screenTotal=${expectedLoss.toFixed(2)}`);
     }
   }
 
