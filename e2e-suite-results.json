@@ -24,5 +24,66 @@
       "PASS  No uncaught JS errors across the whole run"
     ],
     "secs": 80
+  },
+  {
+    "script": "e2eAccessoryReturnViaReturnsPage.mjs",
+    "ok": false,
+    "pass": 23,
+    "total": 24,
+    "summary": "}",
+    "fails": [
+      "FAIL  …and 2 shipping legs costed at the same £ the screen showed — legs=2 loss=15.12"
+    ],
+    "passes": [
+      "PASS  Pool created at 50 — quantity=50",
+      "PASS  Pool after selling 3: 47 — quantity=47",
+      "PASS  An accessory Sale doc exists and is not voided — order=ACC-RP-4001 qty=3",
+      "PASS  Return picker offers an Accessories tab",
+      "PASS  The accessory sale is listed with its friendly name — PICK A SOLD ACCESSORY LINE Process a return DEVICES 0 ACCESSORIES 1 USB-C 20W Charger USB-C-20W · AMAZON · ACC-RP-4001 · ×3 · 2026-09-05 £26",
+      "PASS  …and its order number",
+      "PASS  Modal states Refund as the only outcome",
+      "PASS  Modal explains why there is no repair / replacement route — PROCESS RETURN · ACCESSORY USB-C 20W Charger REVERSING AMAZON · ACC-RP-4001 · ×3 · £26.97 REFUND 3 back into the USB-C-20W pool · the sale is voided, so it drop",
+      "PASS  Modal shows what is being reversed (marketplace · order · qty)",
+      "PASS  Confirm is blocked until a reason is given",
+      "PASS  Pool back to 50 — exactly the sale's own quantity restored — quantity=50",
+      "PASS  totalReceived unchanged — a return is not new intake — totalReceived=50",
+      "PASS  The Sale doc is voided with outcome=refund and the typed reason — {\"voidedAt\":\"2026-09-05\",\"outcome\":\"refund\",\"reason\":\"faulty on arrival\"}",
+      "PASS  Still exactly ONE sale doc — the return voided it, did not duplicate",
+      "PASS  Ledger carries a return event for the right order + marketplace — {\"delta\":3,\"order\":\"ACC-RP-4001\",\"mkt\":\"AMAZON\"}",
+      "PASS  Returns screen has an \"Accessory returns\" section",
+      "PASS  …listing the returned accessory by name",
+      "PASS  …with the reason the operator typed",
+      "PASS  …and the postage loss £15.57 (refund = 2 legs + fee kept) — postage=6.3 p.vat=1.26 carriage=15.12 feeKept=0.45",
+      "PASS  Returns Report has a Returns Detail sheet",
+      "PASS  Returns Detail carries the accessory return row",
+      "PASS  …typed as an Accessory return — got Accessory",
+      "PASS  …with outcome Refund and the operator's reason"
+    ],
+    "secs": 98
+  },
+  {
+    "script": "e2eAccessorySellAndFixes.mjs",
+    "ok": false,
+    "pass": 14,
+    "total": 14,
+    "summary": "}",
+    "fails": [],
+    "passes": [
+      "PASS  Accessory pool created (matches the live bug report) — quantity=12",
+      "PASS  Periodic table no longer labels the misclassified-unit bucket \"Accessories\"",
+      "PASS  Periodic table shows \"Unclassified\" for the data-quality bucket (with a real unclassifiable unit present)",
+      "PASS  A real Accessory Stock panel renders on the Inventory tab (below the periodic table)",
+      "PASS  The test accessory (SKU + name from the bug report) is visible right there",
+      "PASS  Record a Sale picker has an Accessories tab",
+      "PASS  The test accessory is listed in the picker",
+      "PASS  Pool decremented by the sold quantity (12 - 3 = 9) — quantity=9",
+      "PASS  A real Sale doc was created for the accessory (marketplace/order/quantity/GP) — {\"marketplace\":\"AMAZON\",\"orderNumber\":\"AMZ-ACC-TEST-1\",\"quantity\":3,\"gp\":-10.24}",
+      "PASS  Real Apple Watch unit (SE3 40MM GPS+CELLULAR, real IMEI/BP/date) lands under \"Apple Watch\", not \"Unclassified\" — row label found: \"Apple Watch£145 stock\"",
+      "PASS  The SE3 tile appears exactly once (not duplicated across two buckets) — count=1",
+      "PASS  Buy screen accessory overlay shows the SKU (still visible/read-only)",
+      "PASS  Buy screen accessory overlay has NO Adjust button",
+      "PASS  Buy screen accessory overlay has NO Return button"
+    ],
+    "secs": 148
   }
 ]
