@@ -685,5 +685,39 @@
     "fails": [],
     "passes": [],
     "secs": 71
+  },
+  {
+    "script": "e2eReturnCostCapture.mjs",
+    "ok": true,
+    "pass": 23,
+    "total": 23,
+    "summary": "23/23",
+    "fails": [],
+    "passes": [
+      "PASS  the seed has sold units to return — 4 sold, 9 available",
+      "PASS  a repair return processes",
+      "PASS  the repaired unit offers a way back to stock",
+      "PASS  the Ready to Ship modal asks for the repair cost",
+      "PASS  the repair invoice is stored on the unit — repairCost=64.5",
+      "PASS  the unit came back to stock — status=available",
+      "PASS  a replacement return processes",
+      "PASS  the outcome is recorded as a replacement — returnOutcome=replacement",
+      "PASS  the replacement handset is linked — replacedByUnitId=u-101",
+      "PASS  its purchase price is snapshotted for audit — replacementUnitCost=320 vs replacement buyPrice=320",
+      "PASS  the returning unit is back in stock, so nothing was consumed but carriage — returning unit status=available",
+      "PASS  a return-to-supplier processes",
+      "PASS  the row offers to book the supplier settlement",
+      "PASS  the settlement modal opens with an amount to confirm",
+      "PASS  the credit is stored against the unit — supplierCreditAmount=275 type=credit date=2026-09-05",
+      "PASS  the repair void is stamped with the corrected basis — gpBasis=returns_v2",
+      "PASS  a repair inside the warranty window counts as refunded — 57 days after sale · customerRefunded=false",
+      "PASS  the replacement void is stamped with the corrected basis — gpBasis=returns_v2",
+      "PASS  a replacement is NOT recorded as a refund — customerRefunded=false",
+      "PASS  the loss ledger separates carriage from the rest — Carriage / Other / Total columns present",
+      "PASS  the header states what the total now includes",
+      "PASS  the repair invoice reaches the ledger — entered 64.50",
+      "PASS  un-entered costs are flagged rather than shown as zero — 1 return(s) missing a figure"
+    ],
+    "secs": 89
   }
 ]
