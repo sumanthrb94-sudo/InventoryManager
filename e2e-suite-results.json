@@ -132,5 +132,15 @@
       "PASS  No uncaught JS errors across the whole investigation"
     ],
     "secs": 118
+  },
+  {
+    "script": "e2eAdminDeepDive.mjs",
+    "ok": false,
+    "pass": null,
+    "total": null,
+    "summary": "}",
+    "fails": [],
+    "passes": [],
+    "secs": 72
   }
 ]
