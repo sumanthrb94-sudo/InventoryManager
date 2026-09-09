@@ -44,6 +44,35 @@ function record(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
+/**
+ * Adopt every model the import is HOLDING, the way an admin does.
+ *
+ * Import holds any row whose Model is not in the admin catalogue — the gate
+ * that stops supplier product codes becoming model names. A fixture that
+ * invents its own model names therefore lands entirely held, and with no
+ * unheld rows there is no "Load N rows" button at all: the script dies
+ * waiting for a control the app is correct not to show.
+ *
+ * The preview offers the way through — "Add to catalogue" beside each held
+ * model, a prefilled Brand and a Save — and that is the documented flow, so
+ * walk it rather than working around the gate. No-op when nothing is held.
+ */
+async function adoptHeldModels(page) {
+  for (let i = 0; i < 12; i++) {
+    const add = modal(page).getByRole('button', { name: /^Add to catalogue$/i }).first();
+    if (!(await add.isVisible().catch(() => false))) break;
+    await add.scrollIntoViewIfNeeded().catch(() => {});
+    await add.click();
+    await page.waitForTimeout(400);
+    const brand = modal(page).locator('input[placeholder^="Brand"]').first();
+    if (await brand.isVisible().catch(() => false)) {
+      if (!(await brand.inputValue().catch(() => ''))) await brand.fill('GENERIC');
+      await modal(page).getByRole('button', { name: /^Save$/i }).first().click().catch(() => {});
+    }
+    await page.waitForTimeout(900);
+  }
+}
+
 async function shot(page, name) {
   await page.screenshot({ path: `${OUT}/${String(++shotIndex).padStart(2, '0')}-${name}.png`, fullPage: true });
 }
@@ -107,6 +136,7 @@ async function importInventory(page, file) {
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(file);
   await page.waitForTimeout(3000);
+  await adoptHeldModels(page);
   await modal(page).getByRole('button', { name: /Load [\d,]+ rows/i }).click();
   await page.waitForTimeout(5000);
   await modal(page).getByRole('button', { name: /Close|Done/i }).last().click().catch(() => {});

@@ -742,13 +742,36 @@
   },
   {
     "script": "e2eReportsInsightsBrutal.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 22,
+    "total": 22,
+    "summary": "22/22 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 71
+    "passes": [
+      "PASS  Reports Daily Sales — 8 units sold today — SALES FOR 2026-09-09",
+      "PASS  Reports Daily Sales — Revenue = £1,420 — £1,420",
+      "PASS  Reports Daily Sales — Gross Profit = £620 — £620",
+      "PASS  Stock Report tab found and clicked",
+      "PASS  Stock Report: TESTBRAND VELOCITY FASTMOVER shows 40% sell-through",
+      "PASS  Stock Report: TESTBRAND VELOCITY SLOWMOVER shows 50% sell-through",
+      "PASS  Stock Report: TESTBRAND VELOCITY REORDERALERT shows 67% sell-through",
+      "PASS  Fast Movers section toggle found and opened",
+      "PASS  Slow Movers (velocity) section toggle found and opened — distinct from \"Slow Movers · By SKU\"",
+      "PASS  Reorder Alerts section toggle found and opened",
+      "PASS  Fast Movers shows VELOCITY FASTMOVER with 5d avg — VELOCITY FASTMOVER",
+      "PASS  Fast Movers does NOT show TESTBRAND VELOCITY REORDERALERT (20d, not <=14d)",
+      "PASS  Slow Movers shows VELOCITY SLOWMOVER with 50d avg — VELOCITY SLOWMOVER",
+      "PASS  Reorder Alerts shows TESTBRAND VELOCITY REORDERALERT with 67% sell-through",
+      "PASS  Reorder Alerts does NOT show TESTBRAND VELOCITY FASTMOVER (only 40% sell-through)",
+      "PASS  Platform Scorecard: AMAZON shows 6 units sold — AMAZON\t6\t£1,120\t£187\t£100\t£13.07\t£46\t24.4%",
+      "PASS  Platform Scorecard: AMAZON avg price £187 — AMAZON\t6\t£1,120\t£187\t£100\t£13.07\t£46\t24.4%",
+      "PASS  Platform Scorecard: AMAZON avg days to sell 15d",
+      "PASS  Platform Scorecard: EBAY shows 2 units sold — EBAY\t2\t£300\t£150\t£100\t£9.32\t£20\t13.6%",
+      "PASS  Platform Scorecard: EBAY avg price £150",
+      "PASS  Platform Scorecard: EBAY avg days to sell 50d",
+      "PASS  No uncaught JS errors"
+    ],
+    "secs": 74
   },
   {
     "script": "e2eReturnCostCapture.mjs",
@@ -837,13 +860,21 @@
   },
   {
     "script": "e2eSalesHistoryVoidedInclusionBrutal.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 7,
+    "total": 7,
+    "summary": "7/7 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 72
+    "passes": [
+      "PASS  Sell (Inventory) tab \"Sold Today\" = 1 (voided sale excluded) — 1",
+      "PASS  Admin Sales History \"Sold Today\" = 2 (voided sale INCLUDED — full audit trail) — 2",
+      "PASS  Admin Sales History lists both order numbers (active AND voided)",
+      "PASS  Sales History footer Sum SP = £350 (active + voided both counted) — SUM SP: £350",
+      "PASS  Sales History footer Sum GP includes the voided sale's GP too — SUM GP: £73.8",
+      "PASS  Sales History footer row count = 2 (both rows present) — 2 ROWS",
+      "PASS  No uncaught JS errors"
+    ],
+    "secs": 67
   },
   {
     "script": "e2eSalesImportGate.mjs",
@@ -1011,23 +1042,44 @@
   },
   {
     "script": "e2eStockAlertsBrutal.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 6,
+    "total": 6,
+    "summary": "6/6 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 71
+    "passes": [
+      "PASS  Stock Alerts shows \"Sold Out · Reorder\" for PHONE A (0 available, 0 incoming, 1 sold) — SOLD OUT · LAST 72H",
+      "PASS  Stock Alerts shows \"Running Low\" for PHONE B (2 available, <= 3 threshold) — RUNNING LOW · REORDER SOON",
+      "PASS  Stock Alerts does NOT flag PHONE C as low stock (5 available, > 3 threshold)",
+      "PASS  Stock Alerts does NOT flag PHONE C as sold out either (it still has 5 available)",
+      "PASS  Stock Alerts does NOT flag PHONE B as sold out (it has 2 available, not 0)",
+      "PASS  No uncaught JS errors"
+    ],
+    "secs": 68
   },
   {
     "script": "e2eSupplierAndBestSellersBrutal.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 13,
+    "total": 13,
+    "summary": "13/13 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 71
+    "passes": [
+      "PASS  The returned ALPHA unit's Sale doc is actually voided — 2026-09-09",
+      "PASS  ALPHA: exactly 1 unit is now status=returned — returned=1",
+      "PASS  ALPHA: exactly 2 units remain status=sold — sold=2",
+      "PASS  Best Sellers shows BESTSELLER ALPHA PHONE with 2 sold (NOT 3 — the voided sale excluded) — ALPHA PHONE · 128GB",
+      "PASS  Best Sellers shows BESTSELLER ALPHA PHONE revenue £600 (voided sale's £300 excluded, not £900)",
+      "PASS  Best Sellers shows BESTSELLER BETA PHONE with 3 sold",
+      "PASS  Best Sellers shows BESTSELLER BETA PHONE revenue £360 (3 x £120)",
+      "PASS  Supplier Performance · Sales shows ALPHA SUPPLIER CO with Sold=2 — ALPHA SUPPLIER CO\t2\t£600\t£261\t43.5%\t25%",
+      "PASS  Supplier Performance · Sales shows BETA SUPPLIER CO with Sold=3 — BETA SUPPLIER CO\t3\t£360\t£18\t5.1%\t0%",
+      "PASS  Supplier Performance · Sales shows ALPHA SUPPLIER CO return rate 25% — ALPHA SUPPLIER CO\t2\t£600\t£261\t43.5%\t25%",
+      "PASS  Supplier Performance · Sales shows BETA SUPPLIER CO return rate 0% — BETA SUPPLIER CO 3 £360 £18 5.1% 0% GP% = TOTAL GP ÷ REVENUE · RETURN RATE = RETURNED UNITS ÷ TOTAL UNITS ATTRIBUTED PLATFORM SCORECAR",
+      "PASS  Supplier Performance · Sales shows ALPHA revenue £600 (not £900)",
+      "PASS  No uncaught JS errors"
+    ],
+    "secs": 76
   },
   {
     "script": "e2eTemplateDownloads.mjs",
