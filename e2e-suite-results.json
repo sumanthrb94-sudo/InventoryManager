@@ -356,13 +356,23 @@
   },
   {
     "script": "e2eExportAllTimeReports.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 9,
+    "total": 9,
+    "summary": "9/9 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 49
+    "passes": [
+      "PASS  Sales Report downloads for the All Time range — /home/user/InventoryManager/docs/client-report/reports/SALES_REPORT_ALL_TIME.xlsx",
+      "PASS  Inventory Report downloads for the All Time range — /home/user/InventoryManager/docs/client-report/reports/INVENTORY_REPORT_ALL_TIME.xlsx",
+      "PASS  Sales Report · \"Accessories\" carries data, not just a header — 3 rows",
+      "PASS  Sales Report · \"Returns Summary\" carries data, not just a header — 16 rows",
+      "PASS  Sales Report · \"Returns Detail\" carries data, not just a header — 4 rows",
+      "PASS  Sales Report · \"Unit Histories\" carries data, not just a header — 12 rows",
+      "PASS  Sales Report · the marketplace tabs carry sales — 11 rows across five tabs",
+      "PASS  Inventory Report · Office Stock carries units — 9 units",
+      "PASS  Inventory Report · SHS Stock carries holdings — 3 holdings"
+    ],
+    "secs": 23
   },
   {
     "script": "e2eFillableReportShots.mjs",
@@ -1126,11 +1136,34 @@
   {
     "script": "e2eTemuMarketplace.mjs",
     "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
-    "fails": [],
-    "passes": [],
+    "pass": 17,
+    "total": 21,
+    "summary": "17/21 checks passed",
+    "fails": [
+      "FAIL  Commission = £3.87 (Temu's own reported per-order fee, read from the file) — got 3.33",
+      "FAIL  Commission VAT = £0.77 (derived as Commission x 20%, not the sheet's typo) — got 0.67",
+      "FAIL  GP = £11.73 — got 12.27",
+      "FAIL  GP% = 21.32 (GP/BP*100) — got 22.31"
+    ],
+    "passes": [
+      "PASS  the office unit is on the books before the sale — GALAXY A17 · available",
+      "PASS  the marketplace picker offers Temu",
+      "PASS  confirm is enabled — the sale matched the unit, no orphan completion needed",
+      "PASS  the unit is now SOLD — status=sold",
+      "PASS  a TEMU sale was recorded, matched by IMEI — TEMU__PO-210-07053322437751959__350901801557294",
+      "PASS  Marginal Tax = £4.83 ((SP-BP)*16.67%) — got 4.83",
+      "PASS  P. VAT = £1.26 (Postage × 20% — no longer a fixed 0) — got 1.26",
+      "PASS  Total VAT = £1.26 (= P.VAT alone — Commission VAT excluded) — got 1.26",
+      "PASS  Total VAT NTP = £3.57 (Marginal Tax - Total VAT) — got 3.57",
+      "PASS  no DSF line at all — Temu's export has no DSF/DSF VAT columns — dsf=undefined dsfVat=undefined",
+      "PASS  the Temu sale appears in Sales History",
+      "PASS  VAT Centre reflects the imported sale (period shows 1 sale)",
+      "PASS  Temu appears on the Insights / Platform Scorecard",
+      "PASS  the downloaded workbook has a TEMU sheet — Summary, AMAZON, BM, EBAY, ONBUY, TEMU, Returns & Profit, Accessories, Returns Summary, Returns Detail, Unit Histories",
+      "PASS  the TEMU sheet has Commission VAT but no DSF columns (Temu's own layout) — Date | Order Number | SKU | IMEI | Model | Colour | Storage | Supplier | Quantity | BP | SP | SP-BP | Marginal Tax | Commission | Commission VAT | Commission+VAT | Postage | P. VAT | Acc | Total VAT | GP | GP % | Total VAT NTP | Postage Loss | Fees Kept | Repair Cost | Supplier Credit | Return Cost | Net GP £ | Return Date | Outcome | Shipping Legs | Return Reason | Comments",
+      "PASS  the TEMU sheet carries the imported order — PO-210-07053322437751959",
+      "PASS  no uncaught JS errors across the Temu flow"
+    ],
     "secs": 71
   },
   {
@@ -1197,13 +1230,33 @@
   },
   {
     "script": "e2eVatCentreBrutal.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 19,
+    "total": 19,
+    "summary": "19/19 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 71
+    "passes": [
+      "PASS  All 3 sales imported (profit, loss, voided)",
+      "PASS  The voided sale actually carries voidedAt — 2026-07-20",
+      "PASS  Loss sale's margin-scheme VAT floors to £0 even though its historical VAT is non-zero — scheme=0 asComputed=-8.34",
+      "PASS  Profit sale is NOT flagged as loss-making (differs=false)",
+      "PASS  Loss sale IS flagged as loss-making (differs=true)",
+      "PASS  VAT Centre shows the Jul–Sep 2026 quarter with 2 sales (voided excluded) — Jul–Sep 2026 · 2 sales",
+      "PASS  \"Turnover\" = £250.00 — TURNOVER",
+      "PASS  \"Cost of goods\" = £200.00 — COST OF GOODS",
+      "PASS  \"Total margin\" = £50.00 — TOTAL MARGIN",
+      "PASS  \"Margin VAT · as historically computed\" = £8.33",
+      "PASS  \"Margin VAT · per margin scheme\" = £16.67",
+      "PASS  Difference banner shows £8.34 and \"1 sale\"",
+      "PASS  \"Input VAT on fees\" = £6.77 — INPUT VAT ON FEES",
+      "PASS  \"Net payable · as computed\" = £1.56",
+      "PASS  \"Net payable · margin scheme\" = £9.90",
+      "PASS  Loss-making detail table shows exactly the LOSS sale's IMEI",
+      "PASS  Loss-making detail table does NOT show the profit sale's IMEI",
+      "PASS  Loss-making detail table does NOT show the voided sale anywhere",
+      "PASS  No uncaught JS errors"
+    ],
+    "secs": 66
   },
   {
     "script": "e2eWipeReuploadReconcile.mjs",

@@ -60,6 +60,30 @@ function record(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
+/**
+ * Adopt every model the import is HOLDING, the way an admin does. Import holds
+ * any row whose Model is not in the admin catalogue — the gate that stops
+ * supplier product codes becoming model names — so a fixture inventing its own
+ * names lands entirely held, and with no unheld rows there is no
+ * "Load N rows" button for the script to click. Walks the preview's own
+ * "Add to catalogue" affordance; a no-op when nothing is held.
+ */
+async function adoptHeldModels(page) {
+  for (let i = 0; i < 12; i++) {
+    const add = modal(page).getByRole('button', { name: /^Add to catalogue$/i }).first();
+    if (!(await add.isVisible().catch(() => false))) break;
+    await add.scrollIntoViewIfNeeded().catch(() => {});
+    await add.click();
+    await page.waitForTimeout(400);
+    const brand = modal(page).locator('input[placeholder^="Brand"]').first();
+    if (await brand.isVisible().catch(() => false)) {
+      if (!(await brand.inputValue().catch(() => ''))) await brand.fill('GENERIC');
+      await modal(page).getByRole('button', { name: /^Save$/i }).first().click().catch(() => {});
+    }
+    await page.waitForTimeout(900);
+  }
+}
+
 async function shot(page, name) {
   const file = `${String(++shotIndex).padStart(2, '0')}-${name}.png`;
   await page.screenshot({ path: `${OUT}/${file}`, fullPage: true });
@@ -171,6 +195,7 @@ async function run() {
   await page.locator('input[type="file"]').first().setInputFiles(invFile);
   await page.waitForTimeout(2500);
   await shot(page, 'inventory-preview');
+  await adoptHeldModels(page);
   await modal(page).getByRole('button', { name: /Load [\d,]+ rows?/i }).click();
   await page.waitForTimeout(3000);
   await modal(page).getByRole('button', { name: /Close|Done/i }).last().click().catch(() => {});

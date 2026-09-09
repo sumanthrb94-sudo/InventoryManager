@@ -46,10 +46,23 @@ const gotoTab = async (page, label) => {
 
 /** Open a report menu, pick All Time, and save what downloads. */
 async function download(page, menuLabel, saveAs) {
-  await page.getByRole('button', { name: new RegExp(menuLabel, 'i') }).first().click();
-  await page.waitForTimeout(500);
+  // ANCHORED, and retried. Unanchored, "Inventory Report" also matches the
+  // header's "Import Inventory Report" icon, and .first() picks that — opening
+  // the importer instead of the range menu. And ReportRangeMenu's open state is
+  // local: a store re-render lands while the popover is open and closes it, so
+  // one click is not reliably enough. The trigger is a toggle, so a click that
+  // DID open it must not be repeated blindly.
+  const trigger = page.getByRole('button', { name: new RegExp(`^${menuLabel}`, 'i') }).first();
+  const allTime = page.getByRole('button', { name: /^All Time$/i }).first();
+  let open = false;
+  for (let attempt = 0; attempt < 5 && !open; attempt++) {
+    await trigger.click();
+    open = await allTime.isVisible({ timeout: 2500 }).catch(() => false);
+    if (!open) await page.waitForTimeout(800);
+  }
+  if (!open) throw new Error(`${menuLabel} menu never stayed open`);
   const wait = page.waitForEvent('download', { timeout: 60_000 });
-  await page.getByRole('button', { name: /^All Time$/i }).first().click();
+  await allTime.click();
   const dl = await wait;
   const path = resolve(OUT, saveAs);
   await dl.saveAs(path);
