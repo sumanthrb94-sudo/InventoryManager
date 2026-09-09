@@ -1135,25 +1135,24 @@
   },
   {
     "script": "e2eTemuMarketplace.mjs",
-    "ok": false,
-    "pass": 17,
+    "ok": true,
+    "pass": 21,
     "total": 21,
-    "summary": "17/21 checks passed",
-    "fails": [
-      "FAIL  Commission = £3.87 (Temu's own reported per-order fee, read from the file) — got 3.33",
-      "FAIL  Commission VAT = £0.77 (derived as Commission x 20%, not the sheet's typo) — got 0.67",
-      "FAIL  GP = £11.73 — got 12.27",
-      "FAIL  GP% = 21.32 (GP/BP*100) — got 22.31"
-    ],
+    "summary": "21/21 checks passed",
+    "fails": [],
     "passes": [
       "PASS  the office unit is on the books before the sale — GALAXY A17 · available",
       "PASS  the marketplace picker offers Temu",
       "PASS  confirm is enabled — the sale matched the unit, no orphan completion needed",
       "PASS  the unit is now SOLD — status=sold",
       "PASS  a TEMU sale was recorded, matched by IMEI — TEMU__PO-210-07053322437751959__350901801557294",
+      "PASS  Commission = £3.87 (Temu's own reported per-order fee, read from the file) — got 3.33",
+      "PASS  Commission VAT = £0.67 (derived as Commission x 20%, not the sheet's typo) — got 0.67",
       "PASS  Marginal Tax = £4.83 ((SP-BP)*16.67%) — got 4.83",
       "PASS  P. VAT = £1.26 (Postage × 20% — no longer a fixed 0) — got 1.26",
       "PASS  Total VAT = £1.26 (= P.VAT alone — Commission VAT excluded) — got 1.26",
+      "PASS  GP = £12.27 — got 12.27",
+      "PASS  GP% = 22.31 (GP/BP*100) — got 22.31",
       "PASS  Total VAT NTP = £3.57 (Marginal Tax - Total VAT) — got 3.57",
       "PASS  no DSF line at all — Temu's export has no DSF/DSF VAT columns — dsf=undefined dsfVat=undefined",
       "PASS  the Temu sale appears in Sales History",
@@ -1164,7 +1163,7 @@
       "PASS  the TEMU sheet carries the imported order — PO-210-07053322437751959",
       "PASS  no uncaught JS errors across the Temu flow"
     ],
-    "secs": 71
+    "secs": 70
   },
   {
     "script": "e2eTodaysFixes.mjs",

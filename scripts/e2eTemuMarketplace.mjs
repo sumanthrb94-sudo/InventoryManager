@@ -8,12 +8,12 @@
  * app through the client's actual row:
  *
  *   Order PO-210-07053322437751959 · IMEI 350901801557294
- *   BP £55 · SP £83.99 · Postage £6.30 · Commission £3.87 (Temu's own
+ *   BP £55 · SP £83.99 · Postage £6.30 · Commission £3.33 (SP x 3.96%,
  *   reported per-order fee — its referral rate varies by category, not a
  *   flat percentage) · Commission VAT £0.77 = 3.87 x 20% (derived; the
  *   master's own cell says 4.07 because `=K2+20%` is a typo for `=K2*20%`)
- *   → Marginal Tax £4.83 · P.VAT £1.26 · Total VAT £1.26 · GP £11.73 ·
- *     GP% 21.32 · Total VAT NTP £3.57
+ *   → Marginal Tax £4.83 · P.VAT £1.26 · Total VAT £1.26 · GP £12.27 ·
+ *     GP% 22.31 · Total VAT NTP £3.57
  *
  *   1. Import one office unit matching the sheet's IMEI/BP/supplier.
  *   2. Import the shipped SALES_TEMU_TEMPLATE.xlsx (marketplace picker set
@@ -48,8 +48,21 @@ const ROW = {
   bp: 55,
   sp: 83.99,
   postage: 6.30,
-  commission: 3.87,
-  commissionVat: 0.77,   // 3.87 x 20% — derived, not read from the sheet
+  // Commission is COMPUTED, not read from the sheet. The template's
+  // Commission cell is empty — the file carries BP, SP, Postage and Acc and
+  // nothing else — so this is SP x the Temu rate, and that rate moved from
+  // 4.61% to 3.96% on 2026-08-14 (DEFAULT_MARKETPLACE_FEES.TEMU; the client's
+  // report computes every Temu Commission cell as `=H2*3.96%`). The old
+  // figures here were 83.99 x 4.61%, which is where 3.87 came from, and they
+  // failed as though the app had the arithmetic wrong.
+  //
+  //   commission    83.99 x 3.96%          = 3.3260 -> 3.33
+  //   commissionVat 3.33 x 20%             = 0.6652 -> 0.67
+  //   GP  (SP-BP) - marginalTax - commission - postage - P.VAT - acc
+  //       28.99 - 4.8326 - 3.3260 - 6.30 - 1.26 - 1.00 = 12.2714 -> 12.27
+  //   GP% 12.27 / 55 x 100                 = 22.31
+  commission: 3.33,
+  commissionVat: 0.67,
 };
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
@@ -248,22 +261,24 @@ async function run() {
   if (sale) {
     const close = (a, b, tol = 0.02) => Math.abs((a ?? NaN) - b) <= tol;
     record('Commission = £3.87 (Temu\'s own reported per-order fee, read from the file)',
-      close(sale.commission, 3.87), `got ${sale.commission}`);
+      close(sale.commission, ROW.commission), `got ${sale.commission}`);
     // DERIVED as Commission x 20%, not read. The operator master computes it
     // as `=K2+20%`, which Excel evaluates as K + 0.2 rather than K x 20%:
     // 3.87 + 0.2 = 4.07 where 20% VAT on 3.87 is 0.77. A plus typed for a
     // times. Nothing downstream moves — Temu VAT-invoices this back as
     // reclaimable input tax, so it sits outside Total VAT and GP either way.
-    record('Commission VAT = £0.77 (derived as Commission x 20%, not the sheet\'s typo)',
-      close(sale.commissionVat, 0.77), `got ${sale.commissionVat}`);
+    record('Commission VAT = £0.67 (derived as Commission x 20%, not the sheet\'s typo)',
+      close(sale.commissionVat, ROW.commissionVat), `got ${sale.commissionVat}`);
     record('Marginal Tax = £4.83 ((SP-BP)*16.67%)', close(sale.marginalTax, 4.83),
       `got ${sale.marginalTax}`);
     record('P. VAT = £1.26 (Postage × 20% — no longer a fixed 0)', close(sale.postageVat, 1.26),
       `got ${sale.postageVat}`);
     record('Total VAT = £1.26 (= P.VAT alone — Commission VAT excluded)', close(sale.totalVat, 1.26),
       `got ${sale.totalVat}`);
-    record('GP = £11.73', close(sale.grossProfit, 11.73), `got ${sale.grossProfit}`);
-    record('GP% = 21.32 (GP/BP*100)', close(sale.gpPercent, 21.32), `got ${sale.gpPercent}`);
+    // 12.27, not 11.73: the difference is exactly the commission change
+    // above (3.87 - 3.33 = 0.54), and a lower fee is a higher GP.
+    record('GP = £12.27', close(sale.grossProfit, 12.27), `got ${sale.grossProfit}`);
+    record('GP% = 22.31 (GP/BP*100)', close(sale.gpPercent, 22.31), `got ${sale.gpPercent}`);
     record('Total VAT NTP = £3.57 (Marginal Tax - Total VAT)', close(sale.totalVatNtp, 3.57),
       `got ${sale.totalVatNtp}`);
     record('no DSF line at all — Temu\'s export has no DSF/DSF VAT columns',
