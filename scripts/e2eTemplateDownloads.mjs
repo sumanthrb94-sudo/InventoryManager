@@ -12,6 +12,18 @@
  *   3. Import modals → the same offer at the point of upload
  *   4. Download one and check it parses with the real headers
  *
+ * GATED ON THE FEATURE FLAG. Template downloads were switched OFF on
+ * 2026-08-15 at the operator's request ("remove this from ui"), and the
+ * INVENTORY templates were deleted outright with the importers — a blank
+ * intake workbook with no importer behind it is a file nobody can use. So
+ * every check below asserts a surface the product deliberately does not have,
+ * and the script failed as though something were broken.
+ *
+ * It is not deleted, because the flag is documented as reversible ("flip back
+ * to true to restore it; nothing else has to change") and these checks are
+ * what would prove the restoration worked. It SKIPS instead, reading the flag
+ * from source, and says why.
+ *
  * Run after: VITE_E2E=1 vite build --outDir dist-e2e && vite preview
  *   node scripts/e2eTemplateDownloads.mjs
  */
@@ -88,6 +100,20 @@ async function run() {
   const page = await ctx.newPage();
   const jsErrors = [];
   page.on('pageerror', e => jsErrors.push(String(e)));
+
+  // The flag is the product decision; read it rather than guessing from an
+  // empty menu, so "switched off" never gets confused with "broken".
+  const flags = readFileSync('src/lib/featureFlags.ts', 'utf8');
+  const templatesOn = /export const SHOW_TEMPLATE_DOWNLOADS\s*=\s*true/.test(flags);
+  if (!templatesOn) {
+    console.log('SKIP  template downloads are OFF (SHOW_TEMPLATE_DOWNLOADS=false)');
+    console.log('      Switched off 2026-08-15 at the operator\'s request; inventory');
+    console.log('      templates were deleted with the importers. Nothing to test.');
+    console.log('\n0/0 checks passed — skipped by feature flag');
+    await ctx.close();
+    await browser.close();
+    return;
+  }
 
   await page.goto(`${BASE}?e2eReset=1`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
