@@ -810,6 +810,40 @@ export async function adminUpdateUnit(
     return { ok: false, error: 'write_failed', message: 'Admin access required.' };
   }
 
+  // ── A SOLD UNIT IS FINANCIAL HISTORY ──────────────────────────────────────
+  //
+  // Operator, 2026-09-09: "admin cannot edit a sold record or delete it."
+  //
+  // Once a unit has sold, its IMEI, model, buy price and dates are the facts a
+  // Sale doc, a GP figure and a VAT line were computed from. Editing them here
+  // would change the record without changing the money that was derived from
+  // it, and this screen has no way to recompute any of that. The only doors
+  // that can change a sold unit are the ones that also reconcile the sale —
+  // a return on the Returns page, or voiding the sale. Deletion of a sold
+  // unit was already refused (deleteOfficeUnit); this closes the edit side.
+  //
+  // Enforced HERE, in the service, and not only in the modal: this function
+  // is also reached from the inline cells in the stock overlays, and the UX
+  // gate is a hint while the service is the boundary.
+  if (unit.status === 'sold') {
+    return {
+      ok: false,
+      error: 'write_failed',
+      message: 'This unit is sold. Its record is financial history — to change it, process a return or void the sale from the Returns page.',
+    };
+  }
+  // …and nothing becomes sold from here. A unit is sold by a sale, which
+  // records the price, the platform and the money alongside it. Flipping the
+  // status by hand produces a sold unit with no sale behind it: gone from
+  // stock, absent from revenue, absent from VAT.
+  if (patch.status === 'sold') {
+    return {
+      ok: false,
+      error: 'write_failed',
+      message: 'A unit becomes sold only through a sale. Use Record Sale, so the money is recorded with it.',
+    };
+  }
+
   const nextImei = patch.imei ? patch.imei.trim().toUpperCase() : '';
   const currentImei = (unit.imei || '').trim().toUpperCase();
   const idChanged = nextImei && nextImei !== currentImei;

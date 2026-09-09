@@ -35,7 +35,7 @@ vi.mock('../../lib/dbService', async () => {
 vi.mock('../../lib/inventoryEvents', () => ({ logInventoryEvent: vi.fn(async () => {}) }));
 
 import { all, clearStore, col, seed } from '../mocks/memoryDb';
-import { deleteOfficeUnit } from '../../services/inventoryService';
+import { deleteOfficeUnit, adminUpdateUnit } from '../../services/inventoryService';
 import { recordReturnQc, processReturn } from '../../services/returnsService';
 
 const EMPLOYEE = { email: 'ops1@inventorymanager.com', uid: 'emp-1' };
@@ -229,6 +229,55 @@ describe('admin deletes a unit from inventory', () => {
     expect(all('inventoryUnits')).toHaveLength(1);
 
     (dbService as any).delete = original;
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('a sold unit is financial history', () => {
+  // Operator, 2026-09-09: "admin cannot edit a sold record or delete it."
+  // Its IMEI, model, buy price and dates are the facts a Sale doc, a GP figure
+  // and a VAT line were computed from. Enforced in the service, not just the
+  // modal, because adminUpdateUnit is also reached from the inline cells in
+  // the stock overlays.
+
+  it('refuses to edit a sold unit, and points at the Returns page', async () => {
+    const unit = makeUnit({ status: 'sold', salePrice: 425, saleDate: '2026-07-20' });
+    seed('inventoryUnits', [unit]);
+
+    const res = await adminUpdateUnit(unit, { buyPrice: 1 });
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/sold/i);
+    expect(res.message).toMatch(/Returns page/i);
+    // Nothing moved.
+    expect((col('inventoryUnits')['u-1'] as InventoryUnit).buyPrice).toBe(320);
+  });
+
+  it('refuses to flip a unit to sold by hand — a unit is sold by a sale', async () => {
+    const unit = makeUnit();
+    seed('inventoryUnits', [unit]);
+
+    const res = await adminUpdateUnit(unit, { status: 'sold' });
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/Record Sale/i);
+    expect((col('inventoryUnits')['u-1'] as InventoryUnit).status).toBe('available');
+  });
+
+  it('still allows an ordinary edit on an unsold unit', async () => {
+    const unit = makeUnit();
+    seed('inventoryUnits', [unit]);
+
+    const res = await adminUpdateUnit(unit, { colour: 'BLUE' });
+    expect(res.ok).toBe(true);
+    expect((col('inventoryUnits')['u-1'] as InventoryUnit).colour).toBe('BLUE');
+  });
+
+  it('a sold unit cannot be deleted either (already refused, pinned here beside the edit rule)', async () => {
+    const unit = makeUnit({ status: 'sold', salePrice: 425, saleDate: '2026-07-20' });
+    seed('inventoryUnits', [unit]);
+    const res = await deleteOfficeUnit(unit, 'clearing history');
+    expect(res.ok).toBe(false);
+    expect(all('inventoryUnits')).toHaveLength(1);
+    expect(all('deletedUnits')).toHaveLength(0);
   });
 });
 

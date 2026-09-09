@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, CheckCircle2, Edit3, Trash2 } from 'lucide-react';
+import { X, CheckCircle2, Edit3, Trash2, Lock } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, DeviceCategory, DeviceStatus } from '../types';
@@ -15,7 +15,11 @@ interface Props {
 const QUICK_NOTES = ['CLEARANCE', 'ONU', 'BOXED', 'NO BOX'];
 
 const CATEGORY_OPTIONS: DeviceCategory[] = ['iPhone', 'iPad', 'Apple Watch', 'Tablet', 'Samsung S Series', 'Samsung A Series', 'Other'];
-const STATUS_OPTIONS: DeviceStatus[]     = ['available', 'sold', 'reserved', 'returned', 'lost', 'incoming', 'ready_to_ship', 'fba'];
+// 'sold' is deliberately NOT offered. A unit becomes sold through a sale,
+// which records the price, the platform and the money alongside it; flipping
+// the status here produced a sold unit with no sale behind it — gone from
+// stock, absent from revenue, absent from VAT. adminUpdateUnit refuses it too.
+const STATUS_OPTIONS: DeviceStatus[]     = ['available', 'reserved', 'returned', 'lost', 'incoming', 'ready_to_ship', 'fba'];
 
 /**
  * EditUnitModal — admin-grade overlay for editing a single inventory
@@ -63,6 +67,15 @@ export default function EditUnitModal({ unit, onClose }: Props) {
 
   const [deleting, setDeleting] = useState(false);
 
+  // A SOLD UNIT IS READ-ONLY HERE. Operator, 2026-09-09: "admin cannot edit a
+  // sold record or delete it." Its IMEI, model, buy price and dates are the
+  // facts its sale, GP and VAT were computed from; changing them here would
+  // change the record without touching the money derived from it. The doors
+  // that can change a sold unit are the ones that also reconcile the sale —
+  // a return, or voiding the sale — both on the Returns page. The service
+  // enforces this as well; the modal just says so before the operator types.
+  const locked = unit.status === 'sold';
+
   const handleDelete = async () => {
     if (unit.status === 'sold') {
       alert('Cannot delete a sold unit. Void the sale first.');
@@ -92,6 +105,10 @@ export default function EditUnitModal({ unit, onClose }: Props) {
   };
 
   const handleSave = async () => {
+    if (locked) {
+      setError('This unit is sold. To change it, process a return or void the sale from the Returns page.');
+      return;
+    }
     if (!model.trim()) { setError('Model is required'); return; }
     const bp = parseFloat(buyPrice);
     if (isNaN(bp) || bp < 0) { setError('Valid buy price required'); return; }
@@ -167,7 +184,24 @@ export default function EditUnitModal({ unit, onClose }: Props) {
         </div>
 
         {/* Fields */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="flex-1 overflow-y-auto p-5">
+          {locked && (
+            <div className="mb-5 flex items-start gap-3 bg-slate-900 text-white rounded-2xl px-4 py-3">
+              <Lock size={14} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest">Sold · record locked</p>
+                <p className="text-[10px] font-mono text-slate-300 mt-1 leading-relaxed">
+                  This unit's details are the facts its sale, profit and VAT were calculated from, so they
+                  cannot be edited or deleted here. To change it, process a return or void the sale from the
+                  Returns page.
+                </p>
+              </div>
+            </div>
+          )}
+          {/* One fieldset disables every input at once when locked — no field
+              can be missed as the form grows. min-w-0 stops the fieldset's
+              default min-content width breaking the modal's layout. */}
+          <fieldset disabled={locked} className="space-y-5 min-w-0 disabled:opacity-60">
 
           {/* ─── Identity ─────────────────────────────────────────────── */}
           <Section title="Identity">
@@ -198,10 +232,16 @@ export default function EditUnitModal({ unit, onClose }: Props) {
             </FieldRow>
             <FieldRow>
               <Field label="Status">
-                <select value={status} onChange={e => setStatus(e.target.value as DeviceStatus)}
-                  className="w-full mt-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-black bg-white">
-                  {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                {locked ? (
+                  <div className="w-full mt-1 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 text-gray-500 font-mono">
+                    sold
+                  </div>
+                ) : (
+                  <select value={status} onChange={e => setStatus(e.target.value as DeviceStatus)}
+                    className="w-full mt-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-black bg-white">
+                    {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                )}
               </Field>
             </FieldRow>
           </Section>
@@ -300,7 +340,9 @@ export default function EditUnitModal({ unit, onClose }: Props) {
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-black bg-white resize-none" />
           </Section>
 
-          {error && <p className="text-[10px] text-red-500 font-mono">{error}</p>}
+          </fieldset>
+
+          {error && <p className="mt-4 text-[10px] text-red-500 font-mono">{error}</p>}
         </div>
 
         {/* Footer */}
@@ -323,7 +365,8 @@ export default function EditUnitModal({ unit, onClose }: Props) {
           )}
           <button
             onClick={handleSave}
-            disabled={saving || saved || deleting}
+            disabled={saving || saved || deleting || locked}
+            title={locked ? 'Sold units cannot be edited' : undefined}
             className="flex-1 py-3.5 bg-black text-white rounded-xl text-[11px] font-bold uppercase tracking-widest hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saved   ? <><CheckCircle2 size={14} /> Saved!</> :
