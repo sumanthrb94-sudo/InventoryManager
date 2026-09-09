@@ -39,6 +39,7 @@
  * decision, not a migration.
  */
 import type { Sale } from '../types';
+import { saleKeptItsRevenue } from './returnLoss';
 
 /** UK VAT quarters are set per-business; calendar quarters are the default
  *  and the only stagger we can infer without asking. Labelled by the
@@ -127,8 +128,35 @@ export function vatPeriodOf(isoDate: string): VatPeriod | null {
  * would overstate the liability. The sale doc is kept for audit, which is
  * exactly why it has to be filtered here rather than deleted upstream.
  */
+/**
+ * A sale owes VAT when the customer's money STAYED — the same test every
+ * revenue screen applies.
+ *
+ * This used to be `!sale.voidedAt`, which is a different question. A return
+ * voids the Sale doc whatever its outcome, but only a REFUND sends the money
+ * back. A replacement or a repair leaves the customer paid up: the original
+ * supply stands, and the Dashboard, Analytics, the Sell sheet and the client
+ * report all keep its revenue via `saleKeptItsRevenue`. Reading `voidedAt`
+ * here dropped exactly those sales from the VAT position — so the one screen
+ * with a filing deadline attached would have disagreed with every other
+ * screen, by the margin VAT on every replacement and repair, silently.
+ *
+ * Latent rather than live when this was written: the production database
+ * carried 884 sales, 20 voided, all 20 refunds — £0.00 affected. It would
+ * have begun diverging on the first replacement processed.
+ *
+ * `saleKeptItsRevenue` is deliberately the single switch (see returnLoss.ts):
+ * a sale that is not voided keeps its revenue; a voided one keeps it only
+ * when stamped `returns_v2` with `customerRefunded: false`. Legacy voids that
+ * predate that stamp read as refunds, which is how they were treated before.
+ *
+ * The AMOUNT is untouched: `marginalTax` on the doc is the tax on the supply
+ * that actually happened (that SP, that BP). A replacement handset's own cost
+ * is a cost of the return — `replacementUnitCost` — and is not a second
+ * supply, which is also why the merged sales view dedupes it on order number.
+ */
 export function isVatable(sale: Sale): boolean {
-  return !sale.voidedAt;
+  return saleKeptItsRevenue(sale);
 }
 
 /** One sale, both readings. */

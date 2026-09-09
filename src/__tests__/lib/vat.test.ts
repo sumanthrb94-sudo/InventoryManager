@@ -153,6 +153,56 @@ describe('voided sales', () => {
     expect(periods[0].saleCount).toBe(1);
     expect(periods[0].marginVatMarginScheme).toBe(20);
   });
+
+  // A return voids the Sale doc whatever its outcome. Only a REFUND sends the
+  // money back — a replacement or a repair leaves the customer paid up, and
+  // every revenue screen keeps that sale via saleKeptItsRevenue. VAT must read
+  // the same switch, or the one figure with a filing deadline disagrees with
+  // every other screen by the margin VAT on each such sale.
+  const replaced = sale({
+    id: 'V2', saleDate: '2026-07-14', buyPrice: 300, salePrice: 420,
+    voidedAt: '2026-07-21', voidOutcome: 'replacement',
+    gpBasis: 'returns_v2', customerRefunded: false,
+  } as any);
+  const repaired = sale({
+    id: 'V3', saleDate: '2026-07-15', buyPrice: 300, salePrice: 420,
+    voidedAt: '2026-07-22', voidOutcome: 'repair',
+    gpBasis: 'returns_v2', customerRefunded: false,
+  } as any);
+  const refundedV2 = sale({
+    id: 'V4', saleDate: '2026-07-16', buyPrice: 300, salePrice: 420,
+    voidedAt: '2026-07-23', voidOutcome: 'refund',
+    gpBasis: 'returns_v2', customerRefunded: true,
+  } as any);
+
+  it('a replacement keeps the customer\'s money, so it still owes VAT', () => {
+    expect(isVatable(replaced)).toBe(true);
+  });
+
+  it('a repair keeps the customer\'s money, so it still owes VAT', () => {
+    expect(isVatable(repaired)).toBe(true);
+  });
+
+  it('a returns_v2 refund is still not vatable — customerRefunded is the fact that matters', () => {
+    expect(isVatable(refundedV2)).toBe(false);
+  });
+
+  it('a legacy void with no returns_v2 stamp reads as a refund, as it always did', () => {
+    // No gpBasis, no customerRefunded: the pre-correction shape. Nothing here
+    // should change how those historical rows were treated.
+    expect(isVatable(refunded)).toBe(false);
+  });
+
+  it('the period counts replacements and repairs alongside live sales, and drops refunds', () => {
+    const periods = buildVatPeriods([
+      refunded, replaced, repaired, refundedV2,
+      sale({ id: 'W9', saleDate: '2026-07-13', buyPrice: 300, salePrice: 420 }),
+    ]);
+    expect(periods[0].saleCount).toBe(3);
+    // Three sales at a £120 margin, 16.67% each — the two refunds contribute
+    // nothing, exactly as the revenue screens already have it.
+    expect(periods[0].marginVatMarginScheme).toBe(60);
+  });
 });
 
 describe('periods', () => {
