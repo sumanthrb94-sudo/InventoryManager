@@ -50,7 +50,7 @@ await page.waitForTimeout(2500);
 
 // The Sales Report lives on the Inventory (Sell) screen.
 await gotoTab(page, 'Inventory');
-await page.getByRole('button', { name: /Sales Report/i }).first().click();
+await page.getByRole('button', { name: /^Sales Report/i }).first().click();
 await page.waitForTimeout(800);
 await page.locator('button[title="View All Time in browser"]').first().click();
 await page.waitForTimeout(6000);

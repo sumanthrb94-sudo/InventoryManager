@@ -421,7 +421,7 @@ async function run() {
   // ── Sales Report reflects all 40 lines correctly ─────────────────────
   await gotoTab(page, 'Inventory');
   await page.waitForTimeout(500);
-  const reportBtn = page.getByRole('button', { name: /Sales Report/i }).first();
+  const reportBtn = page.getByRole('button', { name: /^Sales Report/i }).first();
   await reportBtn.click();
   await page.waitForTimeout(500);
   const [download] = await Promise.all([

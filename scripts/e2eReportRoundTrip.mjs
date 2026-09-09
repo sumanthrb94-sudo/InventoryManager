@@ -174,10 +174,23 @@ async function run() {
 
   // ── 2. Open the app's View of the inventory report ───────────────────────
   await gotoTab(page, 'Stock Intake');
-  await page.getByRole('button', { name: /Inventory Report/i }).first().click();
-  await page.waitForTimeout(600);
+  // ReportRangeMenu's open state is local, and the store subscriptions are
+  // still delivering for a beat after a navigation — a re-render lands while
+  // the popover is open and resets it to closed, so one click is not reliably
+  // enough. The trigger is a toggle, so a click that DID open it has to be
+  // undone before retrying or the retry just closes it again. Same shape as
+  // downloadReport in e2eAccessoryReturnViaReturnsPage.
+  const reportTrigger = page.getByRole('button', { name: /^Inventory Report/i }).first();
+  const viewAllTime = page.locator('button[title="View All Time in browser"]');
+  let menuOpen = false;
+  for (let attempt = 0; attempt < 5 && !menuOpen; attempt++) {
+    await reportTrigger.click();
+    menuOpen = await viewAllTime.isVisible({ timeout: 2500 }).catch(() => false);
+    if (!menuOpen) await page.waitForTimeout(800);
+  }
   await shot(page, 'report-menu');
-  await page.locator('button[title="View All Time in browser"]').click();
+  if (!menuOpen) throw new Error('Inventory Report menu never stayed open — see report-menu.png');
+  await viewAllTime.click();
   await page.waitForTimeout(4500);
   await shot(page, 'inventory-report-view');
 
@@ -400,7 +413,7 @@ async function run() {
   // The Sales Report lives on the Sell page.
   await gotoTab(page, 'Inventory');
   await page.waitForTimeout(1200);
-  const salesReportBtn = page.getByRole('button', { name: /Sales Report/i }).first();
+  const salesReportBtn = page.getByRole('button', { name: /^Sales Report/i }).first();
   if (await salesReportBtn.isVisible().catch(() => false)) {
     await salesReportBtn.click();
     await page.waitForTimeout(600);

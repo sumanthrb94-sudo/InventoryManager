@@ -94,7 +94,7 @@ async function run() {
 
   // ── 1. Inventory Report menu ─────────────────────────────────────────────
   await gotoTab(page, 'Stock Intake');
-  await page.getByRole('button', { name: /Inventory Report/i }).first().click();
+  await page.getByRole('button', { name: /^Inventory Report/i }).first().click();
   await page.waitForTimeout(600);
   await shot(page, 'inventory-report-menu-templates');
 
@@ -141,7 +141,7 @@ async function run() {
   // ── 3. Sales Report menu — one row per channel ───────────────────────────
   await gotoTab(page, 'Inventory');
   await page.waitForTimeout(1000);
-  await page.getByRole('button', { name: /Sales Report/i }).first().click();
+  await page.getByRole('button', { name: /^Sales Report/i }).first().click();
   await page.waitForTimeout(600);
   await shot(page, 'sales-report-menu-templates');
 
@@ -192,7 +192,7 @@ async function run() {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(600);
   await gotoTab(page, 'Stock Intake');
-  await page.getByRole('button', { name: /Inventory Report/i }).first().click();
+  await page.getByRole('button', { name: /^Inventory Report/i }).first().click();
   await page.waitForTimeout(700);
   await shot(page, 'mobile-inventory-report-menu');
   const overflow = await page.evaluate(() =>

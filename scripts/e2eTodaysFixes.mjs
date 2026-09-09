@@ -344,7 +344,7 @@ async function backToStock(page) {
  *  actually triggers the download. */
 async function downloadSalesReport(page) {
   await gotoSellTab(page);
-  await page.getByRole('button', { name: /Sales Report/i }).first().click({ timeout: 10000 });
+  await page.getByRole('button', { name: /^Sales Report/i }).first().click({ timeout: 10000 });
   await page.waitForTimeout(500);
   const wait = page.waitForEvent('download', { timeout: 60000 });
   await page.getByRole('button', { name: /^All Time$/i }).first().click();

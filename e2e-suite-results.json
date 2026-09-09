@@ -366,13 +366,13 @@
   },
   {
     "script": "e2eFillableReportShots.mjs",
-    "ok": false,
+    "ok": true,
     "pass": null,
     "total": null,
-    "summary": "Node.js v22.22.2",
+    "summary": "3 screenshots in e2e-screenshots/fillable-sales-report",
     "fails": [],
     "passes": [],
-    "secs": 49
+    "secs": 34
   },
   {
     "script": "e2eInventoryImport.mjs",
@@ -714,13 +714,31 @@
   },
   {
     "script": "e2eReportRoundTrip.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 17,
+    "total": 17,
+    "summary": "17/17 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 84
+    "passes": [
+      "PASS  inventory view has a separate sheet for Office and SHS — Office Stock ✓ · SHS Stock ✓",
+      "PASS  Office Stock sheet row count matches the uploaded office rows — uploaded 110 office rows · view reports 111 (incl. header)",
+      "PASS  every rendered Office Stock cell matches the uploaded file — 110 rows × 8 fields compared",
+      "PASS  SHS Stock sheet row count matches the uploaded SHS rows — uploaded 10 SHS rows · view reports 11 (incl. header)",
+      "PASS  every rendered SHS Stock cell matches the uploaded file — 10 rows × 8 fields compared",
+      "PASS  downloaded report splits Office and SHS into their own sheets — Office Stock, SHS Stock",
+      "PASS  every uploaded OFFICE row lands in the Office Stock sheet — uploaded 110 · sheet has 110",
+      "PASS  every uploaded SHS row lands in the SHS Stock sheet — uploaded 10 · sheet has 10",
+      "PASS  no row appears on both sheets — office and SHS are disjoint",
+      "PASS  re-importing the downloaded report reads every row from both sheets — downloaded report re-reads 120 of 120 rows",
+      "PASS  re-imported rows keep their office / SHS split — lands as 110 office · 10 SHS (expected 110 · 10)",
+      "PASS  summary sheet counts match the uploaded file per marketplace — AMAZON 21/21 · BM 20/20 · EBAY 20/20 · ONBUY 20/20 · TEMU 20/20",
+      "PASS  summary total matches the uploaded row count — report 101 · uploaded 101",
+      "PASS  downloaded sales report has a sheet per marketplace — Summary, AMAZON, BM, EBAY, ONBUY, TEMU, Returns & Profit, Accessories, Returns Summary, Returns Detail, Unit Histories",
+      "PASS  every uploaded order appears in the downloaded report — all 5 marketplaces complete",
+      "PASS  sale prices in the report match the file — spot-checked all 5 marketplaces",
+      "PASS  no uncaught JS errors during the round trip"
+    ],
+    "secs": 148
   },
   {
     "script": "e2eReportsInsightsBrutal.mjs",
@@ -1021,7 +1039,7 @@
       "FAIL  Inventory Report menu offers the blank templates — none"
     ],
     "passes": [],
-    "secs": 48
+    "secs": 49
   },
   {
     "script": "e2eTemplateFillAndUpload.mjs",
@@ -1071,7 +1089,7 @@
     "summary": "}",
     "fails": [],
     "passes": [],
-    "secs": 72
+    "secs": 73
   },
   {
     "script": "e2eTwoStageSale.mjs",
