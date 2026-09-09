@@ -1,5 +1,15 @@
 [
   {
+    "script": "clientOnboardingCapture.mjs",
+    "ok": true,
+    "pass": null,
+    "total": null,
+    "summary": "]",
+    "fails": [],
+    "passes": [],
+    "secs": 148
+  },
+  {
     "script": "e2eAccessoryLedger.mjs",
     "ok": true,
     "pass": 15,
