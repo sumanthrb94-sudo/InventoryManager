@@ -297,30 +297,42 @@
   },
   {
     "script": "e2eBatchVsMarketplace.mjs",
-    "ok": false,
-    "pass": 9,
-    "total": 15,
-    "summary": "}",
-    "fails": [
-      "FAIL  A · combined sales workbook imports — Confirm never enabled",
-      "FAIL  B · AMAZON uploads on its own with the picker set — Confirm never enabled",
-      "FAIL  B · BM uploads on its own with the picker set — Confirm never enabled",
-      "FAIL  B · EBAY uploads on its own with the picker set — Confirm never enabled",
-      "FAIL  B · ONBUY uploads on its own with the picker set — Confirm never enabled",
-      "FAIL  B · TEMU uploads on its own with the picker set — Confirm never enabled"
-    ],
+    "ok": true,
+    "pass": 28,
+    "total": 28,
+    "summary": "28/28 checks passed",
+    "fails": [],
     "passes": [
       "PASS  A · inventory lands 110 office + 10 SHS — office=110 shs=10",
+      "PASS  A · combined sales workbook imports — 101 created · 0 updated",
       "PASS  B · inventory lands 110 office + 10 SHS — office=110 shs=10",
-      "PASS  same number of sales recorded either way — batch=0 per-marketplace=0",
-      "PASS  same sales per marketplace either way — AMAZON 0/0 · BM 0/0 · EBAY 0/0 · ONBUY 0/0 · TEMU 0/0",
+      "PASS  B · AMAZON uploads on its own with the picker set — 21 created · 0 updated",
+      "PASS  B · BM uploads on its own with the picker set — 20 created · 0 updated",
+      "PASS  B · EBAY uploads on its own with the picker set — 20 created · 0 updated",
+      "PASS  B · ONBUY uploads on its own with the picker set — 20 created · 0 updated",
+      "PASS  B · TEMU uploads on its own with the picker set — 20 created · 0 updated",
+      "PASS  same number of sales recorded either way — batch=101 per-marketplace=101",
+      "PASS  same sales per marketplace either way — AMAZON 21/21 · BM 20/20 · EBAY 20/20 · ONBUY 20/20 · TEMU 20/20",
       "PASS  sale record ids are identical — a re-upload updates, never duplicates — identical keys",
-      "PASS  the same units are marked sold either way — batch sold 0 · per-marketplace 0",
-      "PASS  office stock reconciles to the same units — batch 110 · per-marketplace 110",
+      "PASS  the same units are marked sold either way — batch sold 93 · per-marketplace 93",
+      "PASS  office stock reconciles to the same units — batch 28 · per-marketplace 28",
       "PASS  SHS stock reconciles to the same units — batch 10 · per-marketplace 10",
-      "PASS  revenue and cost agree to the penny — revenue 0/0 · cost 0/0"
+      "PASS  revenue and cost agree to the penny — revenue 45450.55/45450.55 · cost 33036.33/33036.33",
+      "PASS  Inventory Report downloads from the current state",
+      "PASS  Sales Report downloads from the current state",
+      "PASS  C · wipe leaves no stock behind — office=0 shs=0",
+      "PASS  restored office stock matches what was on the shelf — was 28 · restored 28",
+      "PASS  restored SHS stock matches what the supplier still held — was 10 · restored 10",
+      "PASS  every restored unit keeps model, grade, storage, SIM, colour, supplier, BP and stock type — 38 units × 8 fields",
+      "PASS  D · the downloaded sales report re-imports — 101 created · 0 updated",
+      "PASS  restoring sales does not disturb the restored stock — office 28 → 28 · shs 10 → 10",
+      "PASS  sales come back with the same record ids, so nothing duplicates — was 101 · restored 101",
+      "PASS  the same units come back marked sold — was 93 · restored 93",
+      "PASS  revenue and cost land back on the same figures — revenue 45450.55 → 45450.55 · cost 33036.33 → 33036.33",
+      "PASS  a full restore reproduces the whole business — stock, sales and sold units — office 28/28 · shs 10/10 · sold 93/93 · sales 101/101",
+      "PASS  no uncaught JS errors across all four passes"
     ],
-    "secs": 364
+    "secs": 451
   },
   {
     "script": "e2eBulkSale40.mjs",
@@ -611,81 +623,6 @@
       "PASS  Report carries the resolved model name — Galaxy S24 Ultra"
     ],
     "secs": 175
-  },
-  {
-    "script": "e2eNoImportLifecycle.mjs",
-    "ok": false,
-    "pass": 59,
-    "total": 63,
-    "summary": "FAIL  Still-sold IMEI is absent from the Office stock sheet — 350111000000045 · 4 rows",
-    "fails": [
-      "FAIL  Device catalog holds no duplicate entries — 6 docs / 6 distinct → APPLE·IPHONE 12·? | APPLE·IPHONE 13·? | APPLE·IPHONE 13 PRO·? | APPLE·IPHONE 14·? | SAMSUNG·SAMSUNG GALAXY S22·? | SAMSUNG·SAMSUNG GALAXY S23·?",
-      "FAIL  Still-sold IMEI is absent from the Office stock sheet — 350111000000045 · 4 rows",
-      "FAIL  Device catalog holds no duplicate entries — 6 docs / 6 distinct → APPLE·IPHONE 12·? | APPLE·IPHONE 13·? | APPLE·IPHONE 13 PRO·? | APPLE·IPHONE 14·? | SAMSUNG·SAMSUNG GALAXY S22·? | SAMSUNG·SAMSUNG GALAXY S23·?",
-      "FAIL  Still-sold IMEI is absent from the Office stock sheet — 350111000000045 · 4 rows"
-    ],
-    "passes": [
-      "PASS  Wipe clears units / sales / accessories / suppliers / aggregates — units=0 sales=0 acc=0",
-      "PASS  Add Stock → Office accepts 6 hand-typed units — Save 6  units",
-      "PASS  6 office units written with status=available — got 6",
-      "PASS  Device catalog built by hand from the picker — 6 models",
-      "PASS  Supplier auto-created from the typed name — MOBILE WHOLESALE LTD",
-      "PASS  Add Stock → SHS accepts 3 units with no IMEI — Save 3 SHS units",
-      "PASS  3 SHS units written as incoming with no IMEI — got 3",
-      "PASS  SHS units carry stockSource=shs — shs,shs,shs",
-      "PASS  Add Stock → Accessories accepts 2 SKU pools — Save 2 accessory lines",
-      "PASS  2 accessory pools created with the typed quantities — USB-C-20W:50 CASE-CLR:30",
-      "PASS  Buy KPI \"ALL OFFICE STOCK\" reads 6 — got 6",
-      "PASS  Buy KPI \"SHS STOCK\" reads 3 — got 3",
-      "PASS  Buy KPI \"ACCESSORY SKUS\" reads 2 — got 2",
-      "PASS  Sell 350111000000011 on AMAZON £450",
-      "PASS  Sell 350111000000029 on EBAY £460",
-      "PASS  Sell 350111000000037 on BM £400",
-      "PASS  SHS sale on ONBUY with IMEI stamped at sale time — 350111000000060",
-      "PASS  Accessory sale · 3× USB-C-20W on AMAZON £45",
-      "PASS  Accessory pool decremented by the sold quantity — 50 → 47",
-      "PASS  Accessory sale doc carries quantity and no IMEI — qty=3 imei=\"\" bp=10.5",
-      "PASS  Accessory BP = pool buy price × quantity — 10.5 vs 3.5 × 3",
-      "PASS  Accessory stock ledger recorded the sale — 1 sale events",
-      "PASS  Bulk sale confirms an office unit + an accessory line together",
-      "PASS  Sale docs written for every completed sale — 6 sale docs",
-      "PASS  Sold units flipped to status=sold — 4 sold units vs 4 unit-backed sales (6 sales total)",
-      "PASS  Sold units carry stockSource provenance — office,office,office,shs",
-      "PASS  SHS unit sold in-app learned its IMEI — 350111000000060",
-      "PASS  GP matches master formula · AMAZON AMZ-NI-1001 — app £36.21/10.35%  truth £36.21/10.35%  (bp 350 sp 450 post 6.3)",
-      "PASS  GP matches master formula · EBAY EB-NI-2001 — app £49.81/14.03%  truth £49.81/14.03%  (bp 355 sp 460 post 0)",
-      "PASS  GP matches master formula · BM BM-NI-3001 — app £17.78/5.93%  truth £17.78/5.93%  (bp 300 sp 400 post 6.3)",
-      "PASS  GP matches master formula · ONBUY OB-NI-4001 — app £22.82/6.71%  truth £22.82/6.71%  (bp 340 sp 420 post 6.3)",
-      "PASS  GP matches master formula · AMAZON AMZ-NI-5001 — app £16.33/155.55%  truth £16.33/155.55%  (bp 10.5 sp 45 post 6.3)",
-      "PASS  GP matches master formula · TEMU TEMU-NI-6001-2 — app £9.49/790.74%  truth £9.49/790.74%  (bp 1.2 sp 24 post 6.3)",
-      "PASS  Return processed end to end (pick → QC → CRM queue → finalise) — 350111000000011",
-      "PASS  Return voids the originating sale doc — 1 voided sales",
-      "PASS  Refunded unit went Back to Inventory (available again) — status=available returnType=returned_to_inventory",
-      "PASS  Repair return processed (Send for Repair) — 350111000000029",
-      "PASS  Repaired unit carries returnType=repair and is not resaleable stock — status=returned returnType=repair",
-      "PASS  Repair stamps voidOutcome=repair on the sale (drives 2-leg postage loss) — voidedAt=2026-09-05 outcome=repair",
-      "PASS  Replacement return processed (with a replacement unit named) — 350111000000037",
-      "PASS  Replacement stamps voidOutcome=replacement (drives 3-leg postage loss) — voidedAt=2026-09-05 outcome=replacement",
-      "PASS  Returned unit links to the replacement that shipped in its place — replacedByUnitId=350111000000078",
-      "PASS  Accessory row offers Adjust — ADJUST",
-      "PASS  Accessory row no longer offers Return — ADJUST",
-      "PASS  Inventory Report downloads with Office / SHS / Accessories sheets — Office Stock, SHS Stock, Accessories",
-      "PASS  Inventory Report Office sheet matches live available stock — report 4 vs store 4",
-      "PASS  Inventory Report SHS sheet matches live incoming holdings — report 2 vs store 2",
-      "PASS  Inventory Report Accessories sheet lists both SKU pools — 2 data rows",
-      "PASS  In-repair unit is absent from the Office stock sheet — 350111000000029 · 4 rows",
-      "PASS  Refunded unit is back on the Office stock sheet — 350111000000011 · 350111000000011,350111000000037,350111000000045,350111000000052",
-      "PASS  Sales Report has a tab per marketplace + an Accessories sheet — Summary, AMAZON, BM, EBAY, ONBUY, TEMU, Returns & Profit, Accessories, Returns Summary, Returns Detail, Unit Histories",
-      "PASS  Accessory sale appears on its own marketplace tab (AMAZON) — searched AMAZON sheet for USB-C-20W",
-      "PASS  Accessory sale also appears on the cross-marketplace Accessories sheet — searched Accessories sheet",
-      "PASS  Sales Report carries the Returns sheets — Returns & Profit, Returns Summary, Returns Detail",
-      "PASS  Returns Detail carries the refunded unit — 350111000000011",
-      "PASS  Returns Detail carries the repaired unit — 350111000000029",
-      "PASS  Returns Detail carries the replaced unit — 350111000000037",
-      "PASS  Returns Detail records a Repair outcome — outcome vocabulary present",
-      "PASS  Returns Detail records a Replacement outcome — outcome vocabulary present"
-    ],
-    "secs": 218
   },
   {
     "script": "e2eOfflineBanner.mjs",
@@ -1109,18 +1046,6 @@
     "secs": 76
   },
   {
-    "script": "e2eTemplateDownloads.mjs",
-    "ok": false,
-    "pass": 0,
-    "total": 1,
-    "summary": "}",
-    "fails": [
-      "FAIL  Inventory Report menu offers the blank templates — none"
-    ],
-    "passes": [],
-    "secs": 49
-  },
-  {
     "script": "e2eTemplateFillAndUpload.mjs",
     "ok": false,
     "pass": 6,
@@ -1181,16 +1106,6 @@
       "PASS  no uncaught JS errors across the Temu flow"
     ],
     "secs": 70
-  },
-  {
-    "script": "e2eTodaysFixes.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
-    "fails": [],
-    "passes": [],
-    "secs": 73
   },
   {
     "script": "e2eTwoStageSale.mjs",
@@ -1273,17 +1188,5 @@
       "PASS  No uncaught JS errors"
     ],
     "secs": 66
-  },
-  {
-    "script": "e2eWipeReuploadReconcile.mjs",
-    "ok": false,
-    "pass": 1,
-    "total": 1,
-    "summary": "[TIMED OUT]",
-    "fails": [],
-    "passes": [
-      "PASS  starts from a genuinely empty store"
-    ],
-    "secs": 900
   }
 ]
