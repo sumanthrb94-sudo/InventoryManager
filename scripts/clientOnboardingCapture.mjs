@@ -85,10 +85,15 @@ async function gotoAdminSub(page, label) {
 }
 
 async function openImportMenu(page) {
-  const byLabel = page.getByRole('button', { name: /^Import$/i }).first();
-  if (await byLabel.isVisible().catch(() => false)) await byLabel.click();
-  else await page.locator('button[aria-haspopup="menu"]').first().click();
-  await page.waitForTimeout(500);
+  // The Import dropdown is gone — Inventory and Sales import are two labelled
+  // icon buttons in the header now, so there is no menu to open and the click
+  // that follows this call targets the button directly.
+  //
+  // The old fallback here clicked the first button with aria-haspopup="menu",
+  // which is now the WIPE menu: it opened that, and its popover then sat over
+  // the import button so the next click could never land. Kept as a no-op so
+  // the call sites still read in the right order.
+  await page.waitForTimeout(200);
 }
 
 async function run() {
@@ -134,7 +139,7 @@ async function run() {
 
   // ── Import → Inventory Report, template offer + preview ──────────────
   await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Inventory Report/i }).click();
+  await page.getByRole('button', { name: /^Import Inventory Report$/i }).click();
   await page.waitForTimeout(700);
   const buildFrom = modal(page).getByText(/Build a new file from/i);
   if (await buildFrom.isVisible().catch(() => false)) {
@@ -170,7 +175,7 @@ async function run() {
   // ══ 4 · Sales Report — import, audit, done ════════════════════════════
   await gotoTab(page, 'Inventory');
   await openImportMenu(page);
-  await page.getByRole('menuitem', { name: /Sales Report/i }).click();
+  await page.getByRole('button', { name: /^Import Sales Report$/i }).click();
   await page.waitForTimeout(700);
   await page.locator('input[type="file"]').first().setInputFiles(SALES_FILE);
   await page.waitForTimeout(5000);

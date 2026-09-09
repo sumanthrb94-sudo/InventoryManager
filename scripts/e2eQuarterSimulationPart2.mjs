@@ -31,7 +31,7 @@ try {
 } catch {
   console.log('SKIP  part 1 of the quarter simulation is missing');
   console.log('      scripts/e2eQuarterSimulation.mjs — this file imports it and cannot run alone.');
-  console.log('\\n0/0 checks passed — skipped, dependency absent');
+  console.log('\n0/0 checks passed — skipped, dependency absent');
   process.exit(0);
 }
 
