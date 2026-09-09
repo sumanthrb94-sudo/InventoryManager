@@ -126,7 +126,12 @@ export default function NoticeBoard() {
 
   const deleteNotice = async (n: Notice) => {
     if (!window.confirm('Delete this notice permanently?')) return;
-    await dbService.delete('notices', n.id);
+    try {
+      await dbService.delete('notices', n.id);
+    } catch (e: any) {
+      // The notice has already been put back on screen by dbService; say why.
+      window.alert(`Could not delete the notice: ${e?.message || 'the database refused the delete'}`);
+    }
   };
 
   return (

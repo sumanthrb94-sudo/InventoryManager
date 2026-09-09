@@ -234,13 +234,31 @@ function cleanForFirestore(obj: Record<string, any>): Record<string, any> {
  * grid marks that line failed instead of counting it). Offline and transient
  * errors keep the old forgiving behaviour.
  */
-function rethrowIfDenied(err: any, where: string): void {
+/**
+ * A failed write FAILS. Loudly, to the caller, every time.
+ *
+ * The previous version rethrew permission errors and turned everything else
+ * — invalid-argument, unavailable, a malformed document, a dropped connection
+ * mid-commit — into a console.warn the caller never saw. The optimistic cache
+ * had already been updated, the UI had already shown the new state, and the
+ * promise resolved as if the write had landed. It had not. The screen said
+ * "10 sold"; the database still said available.
+ *
+ * That is the shape of the bug that cost a month here. It cannot be allowed
+ * a second shape.
+ *
+ * Callers that want a soft failure wrap this in try/catch and return
+ * `{ ok: false }` — every service function already does. What no caller may
+ * have is a write that fails and a promise that resolves anyway.
+ */
+function failLoudly(err: any, where: string): never {
   const code = String(err?.code || '');
   if (code === 'permission-denied' || code === 'unauthenticated') {
     console.error(`Firestore ${where} DENIED:`, err?.message);
-    throw err;
+  } else {
+    console.error(`Firestore ${where} FAILED:`, err?.message);
   }
-  console.warn(`Firestore ${where}:`, err?.message);
+  throw err;
 }
 
 // ── dbService ─────────────────────────────────────────────────────────────────
@@ -261,7 +279,12 @@ export const dbService = {
       updatedAt: timestamp,
     };
 
-    const current = [...(cachedData[collectionName] || [])];
+    // The cache is updated BEFORE the write so the UI answers instantly, and
+    // rolled back if the write fails so the UI never keeps showing a state
+    // the database refused. Both halves matter: a thrown error with the cache
+    // still lying is a toast over a wrong screen.
+    const before = cachedData[collectionName];
+    const current = [...(before || [])];
     const idx = current.findIndex(x => x.id === id);
     if (idx >= 0) current[idx] = item; else current.push(item);
     cachedData[collectionName] = current;
@@ -270,13 +293,16 @@ export const dbService = {
     try {
       await setDoc(docRef(collectionName, id), cleanForFirestore(item), { merge: true });
     } catch (err: any) {
-      rethrowIfDenied(err, `create [${collectionName}/${id}]`);
+      cachedData[collectionName] = before || [];
+      emit(collectionName, before || []);
+      failLoudly(err, `create [${collectionName}/${id}]`);
     }
   },
 
   async update(collectionName: string, id: string, data: any) {
     const timestamp = nowIso();
-    const current = [...(cachedData[collectionName] || [])];
+    const before = cachedData[collectionName];
+    const current = [...(before || [])];
     const idx = current.findIndex(x => x.id === id);
     const updated = idx >= 0
       ? { ...current[idx], ...data, id, updatedAt: timestamp }
@@ -289,19 +315,27 @@ export const dbService = {
     try {
       await setDoc(docRef(collectionName, id), cleanForFirestore(updated), { merge: true });
     } catch (err: any) {
-      rethrowIfDenied(err, `update [${collectionName}/${id}]`);
+      cachedData[collectionName] = before || [];
+      emit(collectionName, before || []);
+      failLoudly(err, `update [${collectionName}/${id}]`);
     }
   },
 
   async delete(collectionName: string, id: string) {
-    const current = (cachedData[collectionName] || []).filter(x => x.id !== id);
+    // This one never even checked for a permission denial: a delete the rules
+    // refused looked exactly like a delete that worked. The row vanished from
+    // the screen and came back on the next reload, and nobody was told why.
+    const before = cachedData[collectionName];
+    const current = (before || []).filter(x => x.id !== id);
     cachedData[collectionName] = current;
     emit(collectionName, current);
 
     try {
       await deleteDoc(docRef(collectionName, id));
     } catch (err: any) {
-      console.warn(`Firestore delete [${collectionName}/${id}]:`, err.message);
+      cachedData[collectionName] = before || [];
+      emit(collectionName, before || []);
+      failLoudly(err, `delete [${collectionName}/${id}]`);
     }
   },
 
@@ -658,7 +692,7 @@ export const dbService = {
         await setDoc(snap.docs[0].ref, cleanForFirestore(updated), { merge: true });
       }
     } catch (err: any) {
-      console.warn(`Firestore updateByImei [${imei}]:`, err.message);
+      failLoudly(err, `updateByImei [${imei}]`);
     }
   },
 
@@ -717,7 +751,9 @@ export const dbService = {
     try {
       await setDoc(ref, cleanForFirestore(payload));
     } catch (err: any) {
-      console.warn(`Firestore createImportBatch:`, err.message);
+      cachedData['importBatches'] = (cachedData['importBatches'] || []).filter(b => b.id !== id);
+      emit('importBatches', cachedData['importBatches']);
+      failLoudly(err, 'createImportBatch');
     }
     return id;
   },

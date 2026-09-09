@@ -114,7 +114,13 @@ export default function AccessoryCatalogPanel() {
       `It holds no stock, so nothing is lost. Employees will no longer be able to pick it in Add Stock.`
     );
     if (!ok) return;
-    await dbService.delete('accessoryStock', a.id);
+    try {
+      await dbService.delete('accessoryStock', a.id);
+      setError('');
+    } catch (e: any) {
+      // The row has already been put back on screen by dbService; say why.
+      setError(`Could not remove “${a.name}”: ${e?.message || 'the database refused the delete'}`);
+    }
   };
 
   return (

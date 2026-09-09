@@ -176,7 +176,13 @@ export default function ConfigurationPanel() {
     if (!isAdmin) return;
     const sure = window.confirm(`Remove "${m.brand} ${m.model}" from the catalog?\n\nExisting inventory units are not affected; this only removes the catalog entry employees pick from in Add Stock / Bulk Order.`);
     if (!sure) return;
-    await dbService.delete('models', m.id);
+    try {
+      await dbService.delete('models', m.id);
+      setError('');
+    } catch (e: any) {
+      // The row has already been put back on screen by dbService; say why.
+      setError(`Could not remove "${m.brand} ${m.model}": ${e?.message || 'the database refused the delete'}`);
+    }
   };
 
   if (!isAdmin) {

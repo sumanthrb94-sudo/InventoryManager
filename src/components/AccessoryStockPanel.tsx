@@ -78,7 +78,12 @@ export default function AccessoryStockPanel({ bare = false, showActions = true }
   const removeSku = async (id: string, sku: string) => {
     const sure = window.confirm(`Remove accessory SKU "${sku}" from stock? This deletes the pool entirely — use it only when the SKU is discontinued.`);
     if (!sure) return;
-    await dbService.delete('accessoryStock', id);
+    try {
+      await dbService.delete('accessoryStock', id);
+    } catch (e: any) {
+      // The row has already been put back on screen by dbService; say why.
+      window.alert(`Could not remove "${sku}": ${e?.message || 'the database refused the delete'}`);
+    }
   };
 
   const table = (
