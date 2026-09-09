@@ -307,7 +307,7 @@ async function run() {
   console.log('\n── 5. Inventory Report — Accessories sheet carries "First Added" ──');
   await gotoTab(page, 'Stock Intake');
   await page.waitForTimeout(500);
-  const invPath = await downloadReport(page, /Inventory Report/i);
+  const invPath = await downloadReport(page, /^Inventory Report/i);
   const invDownloaded = resolve(`${OUT}/downloaded-inventory-report.xlsx`);
   copyFileSync(invPath, invDownloaded);
   const wb = new ExcelJS.Workbook();

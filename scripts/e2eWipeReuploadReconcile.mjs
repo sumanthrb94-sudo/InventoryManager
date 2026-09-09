@@ -310,12 +310,12 @@ async function run() {
   // ═══════════════════════════════════════════════════════════════════════
   await gotoTab(page, 'Stock Intake');
   await page.waitForTimeout(500);
-  const invPath = await downloadReport(page, /Inventory Report/i);
+  const invPath = await downloadReport(page, /^Inventory Report/i);
   note(`Downloaded Inventory Report → ${invPath}`);
 
   await gotoTab(page, 'Inventory');
   await page.waitForTimeout(500);
-  const salesPath = await downloadReport(page, /Sales Report/i);
+  const salesPath = await downloadReport(page, /^Sales Report/i);
   note(`Downloaded Sales Report → ${salesPath}`);
 
   const invWb = new ExcelJS.Workbook();

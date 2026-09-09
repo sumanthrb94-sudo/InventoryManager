@@ -37,17 +37,17 @@
   },
   {
     "script": "e2eAccessoryReturnViaReturnsPage.mjs",
-    "ok": false,
-    "pass": 24,
-    "total": 24,
-    "summary": "}",
+    "ok": true,
+    "pass": 29,
+    "total": 29,
+    "summary": "29/29 checks passed",
     "fails": [],
     "passes": [
       "PASS  Pool created at 50 — quantity=50",
       "PASS  Pool after selling 3: 47 — quantity=47",
       "PASS  An accessory Sale doc exists and is not voided — order=ACC-RP-4001 qty=3",
       "PASS  Return picker offers an Accessories tab",
-      "PASS  The accessory sale is listed with its friendly name — PICK A SOLD ACCESSORY LINE Process a return DEVICES 0 ACCESSORIES 1 USB-C 20W Charger USB-C-20W · AMAZON · ACC-RP-4001 · ×3 · 2026-09-05 £26",
+      "PASS  The accessory sale is listed with its friendly name — PICK A SOLD ACCESSORY LINE Process a return DEVICES 0 ACCESSORIES 1 USB-C 20W Charger USB-C-20W · AMAZON · ACC-RP-4001 · ×3 · 2026-09-09 £26",
       "PASS  …and its order number",
       "PASS  Modal states Refund as the only outcome",
       "PASS  Modal explains why there is no repair / replacement route — PROCESS RETURN · ACCESSORY USB-C 20W Charger REVERSING AMAZON · ACC-RP-4001 · ×3 · £26.97 REFUND 3 back into the USB-C-20W pool · the sale is voided, so it drop",
@@ -55,7 +55,7 @@
       "PASS  Confirm is blocked until a reason is given",
       "PASS  Pool back to 50 — exactly the sale's own quantity restored — quantity=50",
       "PASS  totalReceived unchanged — a return is not new intake — totalReceived=50",
-      "PASS  The Sale doc is voided with outcome=refund and the typed reason — {\"voidedAt\":\"2026-09-05\",\"outcome\":\"refund\",\"reason\":\"faulty on arrival\"}",
+      "PASS  The Sale doc is voided with outcome=refund and the typed reason — {\"voidedAt\":\"2026-09-09\",\"outcome\":\"refund\",\"reason\":\"faulty on arrival\"}",
       "PASS  Still exactly ONE sale doc — the return voided it, did not duplicate",
       "PASS  Ledger carries a return event for the right order + marketplace — {\"delta\":3,\"order\":\"ACC-RP-4001\",\"mkt\":\"AMAZON\"}",
       "PASS  Returns screen has an \"Accessory returns\" section",
@@ -66,16 +66,21 @@
       "PASS  Returns Detail carries the accessory return row",
       "PASS  …typed as an Accessory return — got Accessory",
       "PASS  …with outcome Refund and the operator's reason",
-      "PASS  …and 2 shipping legs costed at the carriage figure (fees kept sit in their own column) — legs=2 postageLoss=15.12 carriage=15.12 screenTotal=15.57"
+      "PASS  …and 2 shipping legs costed at the carriage figure (fees kept sit in their own column) — legs=2 postageLoss=15.12 carriage=15.12 screenTotal=15.57",
+      "PASS  Sales Report embeds Returns Detail too",
+      "PASS  …with the accessory row present",
+      "PASS  Return Type reads \"Accessory\" — got Accessory",
+      "PASS  Outcome reads \"Refund\" — got Refund",
+      "PASS  No uncaught JS errors across the whole run"
     ],
-    "secs": 98
+    "secs": 71
   },
   {
     "script": "e2eAccessorySellAndFixes.mjs",
-    "ok": false,
-    "pass": 14,
-    "total": 14,
-    "summary": "}",
+    "ok": true,
+    "pass": 18,
+    "total": 18,
+    "summary": "18/18 checks passed",
     "fails": [],
     "passes": [
       "PASS  Accessory pool created (matches the live bug report) — quantity=12",
@@ -91,9 +96,13 @@
       "PASS  The SE3 tile appears exactly once (not duplicated across two buckets) — count=1",
       "PASS  Buy screen accessory overlay shows the SKU (still visible/read-only)",
       "PASS  Buy screen accessory overlay has NO Adjust button",
-      "PASS  Buy screen accessory overlay has NO Return button"
+      "PASS  Buy screen accessory overlay has NO Return button",
+      "PASS  Inventory Report has an Accessories sheet",
+      "PASS  Accessories sheet header includes \"First Added\" — [null,\"SKU\",\"Name\",\"Supplier\",\"First Added\",\"Total Added\",\"BP\",\"Notes\"]",
+      "PASS  Accessories sheet still has no per-item \"Unit ID\" column (by design — pooled stock)",
+      "PASS  No uncaught JS errors across the whole run"
     ],
-    "secs": 148
+    "secs": 122
   },
   {
     "script": "e2eAccessoryStock.mjs",
@@ -315,10 +324,10 @@
   },
   {
     "script": "e2eBulkSale40.mjs",
-    "ok": false,
-    "pass": 12,
-    "total": 12,
-    "summary": "[TIMED OUT]",
+    "ok": true,
+    "pass": 15,
+    "total": 15,
+    "summary": "15/15 checks passed.",
     "fails": [],
     "passes": [
       "PASS  seed: 20 office + 12 SHS units, 8 accessory SKUs present",
@@ -332,9 +341,12 @@
       "PASS  40 sale docs written for the batch — found 40",
       "PASS  32 unit sales + 8 accessory sales among the 40 — unit=32 accessory=8",
       "PASS  Dashboard mentions the bulk-sold model (IPHONE 13)",
-      "PASS  Dashboard mentions a bulk-sold accessory name"
+      "PASS  Dashboard mentions a bulk-sold accessory name",
+      "PASS  workbook has the Accessories sheet — Summary, AMAZON, BM, EBAY, ONBUY, TEMU, Returns & Profit, Accessories, Returns Summary, Returns Detail, Unit Histories",
+      "PASS  all 20 office + 12 SHS bulk sales land on the correct marketplace sheets — office=20 shs=12",
+      "PASS  all 8 accessory bulk sales land on the dedicated Accessories sheet — found 8"
     ],
-    "secs": 900
+    "secs": 117
   },
   {
     "script": "e2eDeviceComboWidth.mjs",
@@ -819,10 +831,10 @@
   },
   {
     "script": "e2eReturnsMenuAndDeviceCatalog.mjs",
-    "ok": false,
-    "pass": 8,
-    "total": 8,
-    "summary": "}",
+    "ok": true,
+    "pass": 13,
+    "total": 13,
+    "summary": "13/13 checks passed",
     "fails": [],
     "passes": [
       "PASS  Part1: Back to Inventory / Returned to Supplier / In Repair KPIs all show units",
@@ -832,9 +844,14 @@
       "PASS  Part1: In Repair row DOES show the inline \"Back to Stock\" button",
       "PASS  Part1: In Repair row DOES show the \"More actions\" (...) button",
       "PASS  Part1: In Repair \"...\" menu shows ONLY \"Ready to Ship · Back to Stock\" — \"Ready to Ship · Back to Stock\"",
-      "PASS  Part1: All Returns overlay shows exactly 1 \"More actions\" button (only the In-Repair row) — found 1"
+      "PASS  Part1: All Returns overlay shows exactly 1 \"More actions\" button (only the In-Repair row) — found 1",
+      "PASS  Part2: Office orphan row catalog shows the OFFICE model",
+      "PASS  Part2: Office orphan row catalog does NOT show the SHS model",
+      "PASS  Part2: SHS orphan row catalog shows the SHS model",
+      "PASS  Part2: SHS orphan row catalog does NOT show the OFFICE model",
+      "PASS  No uncaught JS errors across either part"
     ],
-    "secs": 143
+    "secs": 134
   },
   {
     "script": "e2eReturnTypesRoundTrip.mjs",

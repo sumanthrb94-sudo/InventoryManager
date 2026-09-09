@@ -315,7 +315,7 @@ async function run() {
 
   // ══ 6. Both reports ══════════════════════════════════════════════════════
   console.log('\n── 6. Returns Report + Sales Report carry it ──');
-  const retPath = await downloadReport(page, /Returns Report/i);
+  const retPath = await downloadReport(page, /^Returns Report/i);
   const retFile = resolve(`${OUT}/downloaded-returns-report.xlsx`);
   copyFileSync(retPath, retFile);
   const retWb = new ExcelJS.Workbook();
@@ -353,7 +353,7 @@ async function run() {
 
   await gotoTab(page, 'Inventory');
   await page.waitForTimeout(1000);
-  const salesPath = await downloadReport(page, /Sales Report/i);
+  const salesPath = await downloadReport(page, /^Sales Report/i);
   const salesFile = resolve(`${OUT}/downloaded-sales-report.xlsx`);
   copyFileSync(salesPath, salesFile);
   const salesWb = new ExcelJS.Workbook();

@@ -401,7 +401,7 @@ async function run() {
   // book and prove nothing.
   console.log('\n── Pass C · restore stock from the downloaded report ──');
   await gotoTab(page, 'Stock Intake');
-  const invPath = await downloadReport(page, /Inventory Report/i);
+  const invPath = await downloadReport(page, /^Inventory Report/i);
   const restoreFile = resolve(OUT, 'downloaded-inventory-report.xlsx');
   copyFileSync(invPath, restoreFile);
   record('Inventory Report downloads from the current state', existsSync(restoreFile));
@@ -410,7 +410,7 @@ async function run() {
   await page.waitForTimeout(1200);
   let salesRestore = null;
   try {
-    const salesPath = await downloadReport(page, /Sales Report/i);
+    const salesPath = await downloadReport(page, /^Sales Report/i);
     salesRestore = resolve(OUT, 'downloaded-sales-report.xlsx');
     copyFileSync(salesPath, salesRestore);
   } catch { /* recorded below */ }
