@@ -200,6 +200,10 @@ async function uploadInventory(page, file, { confirm = true } = {}) {
   const preview = await modal(page).innerText().catch(() => '');
   if (!confirm) return { preview, confirmed: false };
 
+  // Adopt anything the catalogue gate is holding first. This fixture types its
+  // own models, so some rows land held — and a held row is simply missing from
+  // the count, which is why office came in 28/34 rather than failing loudly.
+  await adoptHeldModels(page);
   const btn = modal(page).getByRole('button', { name: /Load [\d,]+ rows/i });
   if (await btn.isDisabled().catch(() => true)) return { preview, confirmed: false };
   await btn.click();
@@ -208,6 +212,51 @@ async function uploadInventory(page, file, { confirm = true } = {}) {
   await page.waitForTimeout(1500);
   await dismissModals(page);
   return { preview, confirmed: true };
+}
+
+/**
+ * Fill what an orphan sold-record needs before Confirm unlocks: IMEI, model,
+ * supplier, buy price.
+ *
+ * MODEL IS A CATALOGUE PICKER, NOT A TEXT BOX — typing a name leaves the row
+ * "on a model not in your catalog" and Confirm stays locked, which is the gate
+ * doing its job. And the field is never empty: it carries the sheet's own
+ * model string, which is exactly why the row is held, so it must be re-picked
+ * rather than skipped for being non-blank.
+ */
+async function completeAudit(page) {
+  const fill = async (selector, value) => {
+    const loc = modal(page).locator(selector);
+    for (let i = 0; i < await loc.count(); i++) {
+      const box = loc.nth(i);
+      if ((await box.inputValue().catch(() => 'x')) === '') {
+        await box.fill(value); await box.press('Tab'); await page.waitForTimeout(120);
+      }
+    }
+  };
+  await fill('input[placeholder="IMEI required"]', '350190000009999');
+  const modelBoxes = modal(page).locator('input[placeholder="Search model…"]');
+  for (let i = 0; i < await modelBoxes.count(); i++) {
+    const box = modelBoxes.nth(i);
+    await box.scrollIntoViewIfNeeded().catch(() => {});
+    await box.click();
+    await box.fill('');
+    await page.waitForTimeout(200);
+    await box.fill('IPHONE 12');
+    await page.waitForTimeout(700);
+    const option = page.locator('div[role="listbox"] button[role="option"]').first();
+    if (await option.isVisible().catch(() => false)) await option.click();
+    else await box.press('Escape').catch(() => {});
+    await page.waitForTimeout(300);
+  }
+  await fill('input[placeholder="Supplier required"]', 'MOBILE WHOLESALE LTD');
+  const numeric = modal(page).locator('input[type="number"]');
+  for (let i = 0; i < await numeric.count(); i++) {
+    const box = numeric.nth(i);
+    const v = await box.inputValue().catch(() => '1');
+    if (!v || Number(v) === 0) { await box.fill('200'); await box.press('Tab'); await page.waitForTimeout(120); }
+  }
+  await page.waitForTimeout(700);
 }
 
 async function uploadSales(page, file, marketplace) {
@@ -226,8 +275,19 @@ async function uploadSales(page, file, marketplace) {
   const ack = modal(page).locator('input[type="checkbox"]').first();
   if (await ack.isVisible().catch(() => false)) { await ack.check(); await page.waitForTimeout(400); }
 
-  const confirm = modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last();
-  if (await confirm.isDisabled().catch(() => true)) return { preview, confirmed: false, done: '' };
+  // A sold IMEI with no matching unit is an ORPHAN, and Confirm stays locked
+  // until each one carries model / supplier / BP. There was no completion step
+  // here at all, so every sales template reported "Confirm never enabled".
+  let confirm = modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last();
+  if (await confirm.isDisabled().catch(() => true)) await completeAudit(page);
+  confirm = modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last();
+  if (await confirm.isDisabled().catch(() => true)) {
+    const panel = (await modal(page).innerText().catch(() => '') || '')
+      .split('\n').map(l => l.trim()).filter(Boolean);
+    const why = panel.filter(l => /held|catalog|supplier|required|complete|\d+ row/i.test(l))
+      .slice(0, 3).join(' · ');
+    return { preview, confirmed: false, done: '', why };
+  }
   await confirm.click();
   await page.waitForTimeout(9000);
   const done = await modal(page).innerText().catch(() => '');
