@@ -1167,7 +1167,44 @@ function SellExcelOverlay({
    *  and the Detailed view shows the marketplace badge on every row, so
    *  the filter was redundant). Marketplace scoping now happens only
    *  via the main Filters drawer when the operator wants it. */
-  const marketplaceRows = rows;
+  /**
+   * Search, inside the overlay.
+   *
+   * The page has a search box, and `overlayRows` is already filtered by it —
+   * but that box sits BEHIND this overlay. Once Sold Today / This Month /
+   * All-time Sold is open, the operator is looking at a full-screen list of
+   * every sale in the period with no way to narrow it without closing the
+   * overlay first, changing the box, and reopening. Stock Intake's overlay has
+   * always had its own search; this is the same thing for the sold side.
+   *
+   * The haystack matches the page's own filter field-for-field (IMEI, order
+   * number, SKU, marketplace, supplier, and the linked unit's model / colour /
+   * storage) so typing the same words in either box narrows to the same rows.
+   */
+  const [overlaySearch, setOverlaySearch] = useState('');
+  const unitsByIdOverlay = useMemo(() => {
+    const m = new Map<string, InventoryUnit>();
+    for (const u of units) if (u.id) m.set(u.id, u);
+    return m;
+  }, [units]);
+  const searchedRows = useMemo(() => {
+    const q = overlaySearch.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(s => {
+      const u = (s.unitId && unitsByIdOverlay.get(s.unitId)) || undefined;
+      return [
+        s.imei, s.orderNumber, s.sku, s.marketplace, s.supplierName,
+        u?.model, u?.colour, u?.storage,
+        supplierMap[s.supplierId || ''],
+      ].filter(Boolean).join(' ').toLowerCase().includes(q);
+    });
+  }, [rows, overlaySearch, unitsByIdOverlay, supplierMap]);
+
+  // Paging resets when the search changes, or a narrowed list can open on a
+  // page that no longer exists and reads as "no results".
+  useEffect(() => { setDetailPage(1); setGroupedPage(1); }, [overlaySearch]);
+
+  const marketplaceRows = searchedRows;
   /** Pagination — 100 entries per page, shared between views.
    *  detailPage is the per-sale page (Detailed view), groupedPage is
    *  the per-model page (Model view). */
@@ -1181,11 +1218,14 @@ function SellExcelOverlay({
     [detailedRows, detailPage],
   );
 
+  // Totals follow the SEARCH, not the whole period. A header reading the
+  // period's revenue over a list narrowed to one model invites exactly the
+  // wrong number to be read off the screen and quoted.
   const totals = useMemo(() => {
-    const revenue = rows.reduce((s, x) => s + (x.salePrice ?? 0), 0);
-    const gp      = rows.reduce((s, x) => s + (x.grossProfit ?? 0), 0);
+    const revenue = searchedRows.reduce((s, x) => s + (x.salePrice ?? 0), 0);
+    const gp      = searchedRows.reduce((s, x) => s + (x.grossProfit ?? 0), 0);
     return { revenue, gp };
-  }, [rows]);
+  }, [searchedRows]);
 
   /** Models are resolved from the linked inventoryUnit when present,
    *  falling back to the SKU string so a sale doc with no IMEI match
@@ -1262,13 +1302,34 @@ function SellExcelOverlay({
           <div className="min-w-0">
             <h3 className="text-sm font-bold tracking-tight truncate">{title}</h3>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              {rows.length.toLocaleString()} {rows.length === 1 ? 'row' : 'rows'}
-              {rows.length > 0 && (
+              {searchedRows.length.toLocaleString()} {searchedRows.length === 1 ? 'row' : 'rows'}
+              {overlaySearch.trim() && <> of {rows.length.toLocaleString()}</>}
+              {searchedRows.length > 0 && (
                 <> · {salesGroups.length} {salesGroups.length === 1 ? 'model' : 'models'} · {grouped.length} {grouped.length === 1 ? 'channel' : 'channels'} · Revenue {fmtGBP(totals.revenue, 0)} · GP <span className={totals.gp >= 0 ? 'text-emerald-700' : 'text-rose-700'}>{fmtGBP(totals.gp, 0)}</span></>
               )}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
+            {rows.length > 0 && (
+              <div className="relative hidden sm:block">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={overlaySearch}
+                  onChange={e => setOverlaySearch(e.target.value)}
+                  placeholder="Search IMEI, order #, model, supplier…"
+                  className="w-56 lg:w-72 border border-slate-200 rounded-xl pl-8 pr-7 py-1.5 text-[11px] focus:outline-none focus:border-slate-900 transition-all"
+                />
+                {overlaySearch && (
+                  <button
+                    onClick={() => setOverlaySearch('')}
+                    title="Clear search"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            )}
             {rows.length > 0 && (
               <div className="inline-flex rounded-xl bg-slate-100 p-0.5 text-[9px] font-bold uppercase tracking-widest">
                 <button
@@ -1293,6 +1354,33 @@ function SellExcelOverlay({
           </div>
         </div>
 
+        {/* Mobile keeps the search on its own row — the header has no room for
+            it beside the title and the view toggle, and hiding it on a phone
+            would leave the operator scrolling a whole month of sales by hand
+            on the device they actually use. */}
+        {rows.length > 0 && (
+          <div className="sm:hidden px-5 py-2 border-b border-slate-100 flex-shrink-0">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={overlaySearch}
+                onChange={e => setOverlaySearch(e.target.value)}
+                placeholder="Search IMEI, order #, model, supplier…"
+                className="w-full border border-slate-200 rounded-xl pl-8 pr-7 py-2 text-[12px] focus:outline-none focus:border-slate-900 transition-all"
+              />
+              {overlaySearch && (
+                <button
+                  onClick={() => setOverlaySearch('')}
+                  title="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Marketplace tab strip — only in Detailed view, placed
             OUTSIDE the scroll container so it's always visible.
             (Earlier sticky-inside attempt got covered by the
@@ -1307,10 +1395,27 @@ function SellExcelOverlay({
             when they want. */}
 
         <div className="flex-1 overflow-auto">
-          {rows.length === 0 ? (
+          {searchedRows.length === 0 ? (
+            // Say WHICH emptiness this is. "No sales in this view" over a
+            // period that has hundreds, because the search matched none of
+            // them, reads as data missing rather than as a search too narrow.
             <div className="py-16 flex flex-col items-center gap-2 text-slate-400">
               <Sparkles size={28} />
-              <p className="text-[11px] font-mono uppercase tracking-widest">No sales in this view</p>
+              {overlaySearch.trim() ? (
+                <>
+                  <p className="text-[11px] font-mono uppercase tracking-widest">
+                    No sales match “{overlaySearch.trim()}”
+                  </p>
+                  <button
+                    onClick={() => setOverlaySearch('')}
+                    className="text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-900 underline underline-offset-2"
+                  >
+                    Clear search · {rows.length.toLocaleString()} in this view
+                  </button>
+                </>
+              ) : (
+                <p className="text-[11px] font-mono uppercase tracking-widest">No sales in this view</p>
+              )}
             </div>
           ) : viewMode === 'model' ? (
             <GroupedSalesTable
