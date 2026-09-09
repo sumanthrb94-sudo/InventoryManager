@@ -205,7 +205,34 @@ async function completeAudit(page) {
     }
   };
   await fill('input[placeholder="IMEI required"]', '350190000009999');
-  await fill('input[placeholder="Search model…"]', 'IPHONE 12');
+  // MODEL IS A CATALOGUE PICKER, NOT A TEXT BOX. Typing "IPHONE 12" leaves the
+  // row "on a model not in your catalog" and Confirm stays locked — the gate
+  // that stops supplier product codes becoming model names, working exactly as
+  // designed. The entry has to be CHOSEN from the dropdown, so type, wait for
+  // the listbox, and click the option.
+  const modelBoxes = modal(page).locator('input[placeholder="Search model…"]');
+  for (let i = 0; i < await modelBoxes.count(); i++) {
+    const box = modelBoxes.nth(i);
+    // Do NOT skip a filled box. The row is held precisely BECAUSE the model
+    // carries the sheet's own string, which is not a catalogue entry — so the
+    // field is never empty, and skipping non-empty ones skipped every row that
+    // needed fixing. Re-pick regardless.
+    await box.scrollIntoViewIfNeeded().catch(() => {});
+    await box.click();
+    await box.fill('');
+    await page.waitForTimeout(200);
+    await box.fill('IPHONE 12');
+    await page.waitForTimeout(700);
+    const option = page.locator('div[role="listbox"] button[role="option"]').first();
+    if (await option.isVisible().catch(() => false)) {
+      await option.click();
+    } else {
+      // No catalogue match offered: leave it, and let the blocked-reason
+      // reporting name it rather than pressing on with an unselected value.
+      await box.press('Escape').catch(() => {});
+    }
+    await page.waitForTimeout(300);
+  }
   await fill('input[placeholder="Supplier required"]', 'MOBILE WHOLESALE LTD');
   const numeric = modal(page).locator('input[type="number"]');
   for (let i = 0; i < await numeric.count(); i++) {
@@ -243,7 +270,18 @@ async function uploadSales(page, file, marketplace) {
 
   confirm = modal(page).getByRole('button', { name: /Load|Confirm|record/i }).last();
   if (await confirm.isDisabled().catch(() => true)) {
-    return { done: '', blocked: true };
+    // Say WHY. "Confirm never enabled" names the symptom and nothing else,
+    // and the reason is always on screen — the import holds rows whose model
+    // or supplier is not on file and puts the count in the panel. Carrying
+    // that text out turns six identical failures into six readable ones.
+    const label = (await confirm.textContent().catch(() => '') || '').trim();
+    const panel = (await modal(page).innerText().catch(() => '') || '')
+      .split('\n').map(l => l.trim()).filter(Boolean);
+    const why = panel.filter(l =>
+      /held|not in the (model )?catalog|supplier|required|missing|cannot|blocked|\d+ row/i.test(l)
+    ).slice(0, 4).join(' · ');
+    await page.screenshot({ path: `${OUT}/DEBUG-sales-confirm-blocked.png`, fullPage: true }).catch(() => {});
+    return { done: '', blocked: true, why: `${label || 'Confirm'} disabled · ${why || panel.slice(0, 3).join(' · ')}` };
   }
   await confirm.click();
   await page.waitForTimeout(9000);
@@ -295,7 +333,7 @@ async function run() {
 
   const batchDone = await uploadSales(page, COMBINED_SALES, null);
   record('A · combined sales workbook imports', !batchDone.blocked,
-    batchDone.blocked ? 'Confirm never enabled' : (batchDone.done.match(/\d+ created · \d+ updated/i) || [''])[0]);
+    batchDone.blocked ? batchDone.why : (batchDone.done.match(/\d+ created · \d+ updated/i) || [''])[0]);
   await shot(page, 'batch-import-done');
 
   await gotoTab(page, 'Stock Intake');
@@ -320,7 +358,7 @@ async function run() {
     const running = fingerprint(await readStore(page));
     console.log(`   ${m}: sales=${running.saleCount} office=${running.officeCount} shs=${running.shsCount}`);
     record(`B · ${m} uploads on its own with the picker set`, !r.blocked,
-      r.blocked ? 'Confirm never enabled' : (r.done.match(/\d+ created · \d+ updated/i) || [''])[0]);
+      r.blocked ? (r.why || 'Confirm never enabled') : (r.done.match(/\d+ created · \d+ updated/i) || [''])[0]);
   }
   await shot(page, 'per-marketplace-final-state');
 
@@ -425,7 +463,7 @@ async function run() {
     console.log(`   D: office=${D.officeCount} shs=${D.shsCount} sold=${D.soldCount} sales=${D.saleCount}`);
 
     record('D · the downloaded sales report re-imports', !r.blocked,
-      r.blocked ? 'Confirm never enabled' : (r.done.match(/\d+ created · \d+ updated/i) || [''])[0]);
+      r.blocked ? (r.why || 'Confirm never enabled') : (r.done.match(/\d+ created · \d+ updated/i) || [''])[0]);
     record('restoring sales does not disturb the restored stock',
       D.officeCount === C.officeCount && D.shsCount === C.shsCount,
       `office ${C.officeCount} → ${D.officeCount} · shs ${C.shsCount} → ${D.shsCount}`);
