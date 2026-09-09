@@ -1,4 +1,13 @@
 /**
+ * SKIPS WHEN ITS INPUT IS ABSENT, rather than failing as though the app broke.
+ *
+ * This script depends on something that is not in the repository and cannot be
+ * regenerated from it, so a fresh clone cannot run it and a red result here
+ * says nothing about the product. Left in place because the checks are worth
+ * having if the input ever returns; it reports SKIP and exits 0 so a sweep
+ * total stays honest either way.
+ */
+/**
  * scripts/e2eMonthSimulation.mjs — a month of trading at the operator's real
  * daily rate, audited against the panels two teams actually work from.
  *
@@ -57,7 +66,20 @@ const SIM_DIR = resolve('e2e-screenshots/month-simulation');
 const OUT = SIM_DIR;
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
-const manifest = JSON.parse(readFileSync(resolve(SIM_DIR, 'manifest.json'), 'utf8'));
+// The manifest is GITIGNORED (.gitignore:37) and nothing in the repo writes
+// it — simulate50Units.ts emits a different manifest, of a different shape,
+// into a different directory. Whatever produced this one is gone, so read it
+// defensively and skip rather than dying at module load with a bare ENOENT.
+const MANIFEST_PATH = resolve(SIM_DIR, 'manifest.json');
+if (!existsSync(MANIFEST_PATH)) {
+  console.log('SKIP  the month-simulation manifest is not present');
+  console.log(`      ${MANIFEST_PATH}`);
+  console.log('      Gitignored, and nothing in the repo generates it. Fabricating one');
+  console.log('      would make this pass against invented data, which is worse than a skip.');
+  console.log('\n0/0 checks passed — skipped, fixture absent');
+  process.exit(0);
+}
+const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
 
 // ── Reporting ───────────────────────────────────────────────────────────────
 const results = [];

@@ -1,4 +1,13 @@
 /**
+ * SKIPS WHEN ITS INPUT IS ABSENT, rather than failing as though the app broke.
+ *
+ * This script depends on a file that is not in the repository and cannot be
+ * regenerated from it. A fresh clone therefore cannot run it, and a red result
+ * here says nothing about the product — it says the fixture is gone. Left in
+ * place because the checks are worth having if the input ever returns; it
+ * reports SKIP and exits 0 so a sweep total stays honest either way.
+ */
+/**
  * scripts/e2eLiveClientFileReconcile.mjs — reproduces and verifies the
  * client's exact real-world workflow: wipe, upload the real Inventory
  * Report (all-time, 247 office + 46 SHS), upload the real Sales Report
@@ -25,6 +34,20 @@ if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
 const INV_FILE = '/root/.claude/uploads/9cdb0165-62ae-52fe-83ef-914786a3a63d/6facc7da-inventoryreportalltime20260731_1553.xlsx';
 const SALES_FILE = '/root/.claude/uploads/9cdb0165-62ae-52fe-83ef-914786a3a63d/0cef3b48-salesreport20260731_1553.xlsx';
+
+// CHAT-UPLOAD PATHS. These two workbooks were attached to a conversation in
+// July; the uploads directory holds different files now. They are not in the
+// repo and must not be — they carry real client IMEIs and order numbers.
+for (const f of [INV_FILE, SALES_FILE]) {
+  if (!existsSync(f)) {
+    console.log('SKIP  the client reconciliation workbooks are not present');
+    console.log(`      missing: ${f}`);
+    console.log('      Chat-upload paths from an earlier session. Not in the repo, and');
+    console.log('      not addable — they carry real client IMEIs and order numbers.');
+    console.log('\n0/0 checks passed — skipped, fixture absent');
+    process.exit(0);
+  }
+}
 
 const results = [];
 let shotIndex = 0;

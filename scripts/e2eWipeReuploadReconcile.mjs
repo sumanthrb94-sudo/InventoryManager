@@ -1,4 +1,13 @@
 /**
+ * SKIPS WHEN ITS INPUT IS ABSENT, rather than failing as though the app broke.
+ *
+ * This script depends on a file that is not in the repository and cannot be
+ * regenerated from it. A fresh clone therefore cannot run it, and a red result
+ * here says nothing about the product — it says the fixture is gone. Left in
+ * place because the checks are worth having if the input ever returns; it
+ * reports SKIP and exits 0 so a sweep total stays honest either way.
+ */
+/**
  * scripts/e2eWipeReuploadReconcile.mjs — does the CONVERTED client sales
  * file survive a full wipe + reupload cycle with zero data loss?
  *
@@ -28,6 +37,18 @@ const OUT = 'e2e-screenshots/wipe-reupload-reconcile';
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
 const CONVERTED_FILE = '/tmp/claude-0/-home-user-InventoryManager/9cdb0165-62ae-52fe-83ef-914786a3a63d/scratchpad/SALES_REPORT_2026_CONVERTED_30TH_JULY.xlsx';
+
+// A SESSION SCRATCHPAD PATH. That directory belongs to one Claude session and
+// is gone with it, so this is unrunnable in any fresh checkout — and it did
+// not fail fast: under the suite it sat until the 900s timeout, fifteen
+// minutes of every sweep, for a file that cannot exist.
+if (!existsSync(CONVERTED_FILE)) {
+  console.log('SKIP  the converted sales workbook is not present');
+  console.log(`      ${CONVERTED_FILE}`);
+  console.log('      A session scratchpad path — not in the repo, not regenerable from it.');
+  console.log('\n0/0 checks passed — skipped, fixture absent');
+  process.exit(0);
+}
 
 const results = [];
 let shotIndex = 0;
