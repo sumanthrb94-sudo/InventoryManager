@@ -104,24 +104,14 @@ export default defineConfig(({ mode }) => {
       // — so it is widened to the whole tree, and a test placed anywhere now
       // runs by default rather than by permission.
       include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
-      // These five were written against component versions that have since
-      // changed — placeholders, labels and markup have all moved on, so 134
-      // of their 217 assertions fail on details the app deliberately altered.
-      // They never ran (the glob was .ts-only), so nothing regressed; they
-      // were simply never true of the code as it stands.
-      //
-      // Excluded HERE, by name, rather than left to silently miss a glob:
-      // this way the .tsx path works for new tests, and the debt is one
-      // readable list instead of an invisible gap. Repairing them is a
-      // separate decision — each needs checking against current behaviour to
-      // see whether the assertion or the component is the stale one.
-      exclude: [
-        'src/__tests__/components/Inventory.test.tsx',
-        'src/__tests__/components/NewBatchModal.test.tsx',
-        'src/__tests__/components/P2_Components.test.tsx',
-        'src/__tests__/components/P3_Components.test.tsx',
-        'src/__tests__/components/ScanInModal.test.tsx',
-      ],
+      // Five component suites used to be excluded here by name — written
+      // against component versions long since changed, 134 of their 217
+      // assertions false of the code as it stood, never once executed. They
+      // were still type-checked, though, and that is what `npm run lint` is:
+      // 135 of the 162 errors that kept CI red on its first step came from
+      // files that could not run. They are deleted (2026-09-09). A test that
+      // can neither run nor compile is not debt to repair, it is a wrong
+      // answer on a file listing.
       coverage: {
         provider: 'v8',
         reporter: ['text', 'html'],

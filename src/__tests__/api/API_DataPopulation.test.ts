@@ -131,8 +131,8 @@ describe('API Data Population & Integration Tests', () => {
       sold.forEach(unit => {
         if (unit.salePrice && unit.buyPrice) {
           const expectedProfit =
-            unit.salePrice - unit.buyPrice - (unit.postageCost || 8) - (unit.platformFee || 0);
-          const actualProfit = unit.profit || 0;
+            unit.salePrice - unit.buyPrice - (unit.postageCost || 8) - ((unit as any).platformFee || 0);
+          const actualProfit = (unit as any).profit || 0;
           expect(Math.abs(expectedProfit - actualProfit)).toBeLessThan(1);
         }
       });
@@ -140,8 +140,8 @@ describe('API Data Population & Integration Tests', () => {
 
     it('should have realistic profit margin distribution', () => {
       const sold = mockDb.getUnits({ status: 'sold' });
-      const profitable = sold.filter(u => (u.profit || 0) > 0);
-      const unprofitable = sold.filter(u => (u.profit || 0) < 0);
+      const profitable = sold.filter(u => ((u as any).profit || 0) > 0);
+      const unprofitable = sold.filter(u => ((u as any).profit || 0) < 0);
       expect(profitable.length).toBeGreaterThanOrEqual(20); // Mix of profitable
       expect(unprofitable.length).toBeGreaterThanOrEqual(5); // Some loss-making
       expect(profitable.length + unprofitable.length).toBeGreaterThan(0);
@@ -158,7 +158,7 @@ describe('API Data Population & Integration Tests', () => {
             Backmarket: 0.1,
           };
           const expectedFee = (unit.salePrice || 0) * feeRates[unit.salePlatform] + (unit.salePlatform === 'eBay' ? 0.3 : 0);
-          expect(Math.abs((unit.platformFee || 0) - expectedFee)).toBeLessThan(0.5);
+          expect(Math.abs(((unit as any).platformFee || 0) - expectedFee)).toBeLessThan(0.5);
         }
       });
     });
@@ -174,7 +174,7 @@ describe('API Data Population & Integration Tests', () => {
       const returned = mockDb.getUnits({ status: 'returned' });
       returned.forEach(unit => {
         expect(unit).toHaveProperty('returnType');
-        expect(['Return to Inventory', 'Return to Supplier']).toContain(unit.returnType);
+        expect(['returned_to_inventory', 'returned_to_supplier']).toContain(unit.returnType);
         expect(unit).toHaveProperty('returnReason');
         expect(['Defective', 'Change of Mind', 'Wrong Item', 'Damaged on Delivery']).toContain(
           unit.returnReason

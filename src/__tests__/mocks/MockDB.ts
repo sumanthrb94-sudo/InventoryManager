@@ -86,7 +86,7 @@ export class MockDB {
       imei: unit.imei || '',
       model: unit.model || 'Unknown',
       brand: unit.brand || 'Unknown',
-      category: unit.category || 'phone',
+      category: unit.category || 'Other',
       colour: unit.colour || 'Unknown',
       buyPrice: unit.buyPrice || 0,
       dateIn: unit.dateIn || new Date().toISOString().split('T')[0],
@@ -105,8 +105,10 @@ export class MockDB {
       ...(unit.salePlatform && { salePlatform: unit.salePlatform }),
       ...(unit.saleDate && { saleDate: unit.saleDate }),
       ...(unit.postageCost && { postageCost: unit.postageCost }),
-      ...(unit.platformFee && { platformFee: unit.platformFee }),
-      ...(unit.profit !== undefined && { profit: unit.profit }),
+      // Legacy fields the seed still writes and API_DataPopulation still
+      // asserts on; InventoryUnit no longer declares them.
+      ...((unit as any).platformFee && { platformFee: (unit as any).platformFee }),
+      ...((unit as any).profit !== undefined && { profit: (unit as any).profit }),
       ...(unit.returnType && { returnType: unit.returnType }),
       ...(unit.returnReason && { returnReason: unit.returnReason }),
     };

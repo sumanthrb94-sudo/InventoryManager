@@ -14,8 +14,8 @@ import type { Sale, InventoryUnit } from '../../types';
 const sale = (over: Partial<Sale>): Sale => ({
   id: 'S', marketplace: 'EBAY', orderNumber: 'O', imei: '1',
   unitId: 'u', supplierId: 's1', supplierName: 'X',
-  saleDate: '2026-06-12', quantity: 1, buyPrice: 100, salePrice: 150,
-  importBatchId: 't', sourceFile: 't', sourceRow: 1, ownerId: 'shared',
+  saleDate: '2026-06-12', quantity: 1, buyPrice: 100, salePrice: 150, spMinusBp: 50, marginalTax: 0, commission: 0, postage: 0, grossProfit: 0, gpPercent: 0,
+  importBatchId: 't', sourceFile: 't', sourceRow: 1, ownerId: 'shared', importedAt: '',
   createdAt: '2026-06-12T08:00:00.000Z', updatedAt: '2026-06-12T08:00:00.000Z',
   ...over,
 });

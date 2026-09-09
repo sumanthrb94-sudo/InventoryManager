@@ -62,6 +62,10 @@ vi.mock('../../lib/dbService', () => {
 
 // Imports AFTER the mock is registered.
 import { dbService } from '../../lib/dbService';
+// The mock above adds a single-doc `read` the real dbService does not have.
+// Typed once here rather than cast at every call.
+const readDoc = (collectionName: string, id: string): Promise<any> =>
+  (dbService as any).read(collectionName, id);
 import { InventoryUnit } from '../../types';
 
 /**
@@ -110,7 +114,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
     });
 
     it('should create SHS unit with status=incoming and no IMEI', async () => {
-      const unit = await dbService.read('inventoryUnits', shsId);
+      const unit = await readDoc('inventoryUnits', shsId);
       expect(unit.status).toBe('incoming');
       expect(unit.imei).toBe('');
       expect(unit.notes).toContain('SHS');
@@ -120,7 +124,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
       const newImei = '359108096724237';
       await dbService.update('inventoryUnits', shsId, { imei: newImei });
 
-      const updated = await dbService.read('inventoryUnits', shsId);
+      const updated = await readDoc('inventoryUnits', shsId);
       expect(updated.imei).toBe(newImei);
       expect(updated.status).toBe('incoming'); // Status unchanged
     });
@@ -145,7 +149,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
         // NOTE: IMEI is NOT being set here (simulating empty imeiInput)
       });
 
-      const sold = await dbService.read('inventoryUnits', shsId);
+      const sold = await readDoc('inventoryUnits', shsId);
       expect(sold.status).toBe('sold');
       expect(sold.imei).toBe(presetImei); // IMEI preserved!
       expect(sold.salePrice).toBe(salePrice);
@@ -168,7 +172,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
 
       await dbService.update('inventoryUnits', shsId, saleData);
 
-      const soldUnit = await dbService.read('inventoryUnits', shsId);
+      const soldUnit = await readDoc('inventoryUnits', shsId);
 
       // Verify all sale data
       expect(soldUnit.status).toBe('sold');
@@ -235,7 +239,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
 
     it('should import all 3 units with correct data', async () => {
       for (const imei of unitIds) {
-        const unit = await dbService.read('inventoryUnits', imei);
+        const unit = await readDoc('inventoryUnits', imei);
         expect(unit.status).toBe('available');
         expect(unit.batchId).toBe(batchId);
         expect(unit.imei).toBe(imei);
@@ -245,7 +249,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
     it('should filter units by model and status', async () => {
       // Simulate filtering
       const units = await Promise.all(
-        unitIds.map(id => dbService.read('inventoryUnits', id))
+        unitIds.map(id => readDoc('inventoryUnits', id))
       );
 
       const iPhoneUnits = units.filter(u => u.category === 'iPhone');
@@ -254,8 +258,8 @@ describe('E2E Workflows - Complete User Journeys', () => {
     });
 
     it('should sell 2 units and update statuses independently', async () => {
-      const unit1 = await dbService.read('inventoryUnits', unitIds[0]);
-      const unit2 = await dbService.read('inventoryUnits', unitIds[1]);
+      const unit1 = await readDoc('inventoryUnits', unitIds[0]);
+      const unit2 = await readDoc('inventoryUnits', unitIds[1]);
 
       // Sell unit 1 (profit)
       await dbService.update('inventoryUnits', unitIds[0], {
@@ -277,9 +281,9 @@ describe('E2E Workflows - Complete User Journeys', () => {
         postageCost: 5,
       });
 
-      const sold1 = await dbService.read('inventoryUnits', unitIds[0]);
-      const sold2 = await dbService.read('inventoryUnits', unitIds[1]);
-      const still_available = await dbService.read('inventoryUnits', unitIds[2]);
+      const sold1 = await readDoc('inventoryUnits', unitIds[0]);
+      const sold2 = await readDoc('inventoryUnits', unitIds[1]);
+      const still_available = await readDoc('inventoryUnits', unitIds[2]);
 
       expect(sold1.status).toBe('sold');
       expect(sold1.salePrice).toBe(450);
@@ -307,7 +311,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
       });
 
       const units = await Promise.all(
-        unitIds.map(id => dbService.read('inventoryUnits', id))
+        unitIds.map(id => readDoc('inventoryUnits', id))
       );
 
       const soldUnits = units.filter(u => u.status === 'sold');
@@ -351,7 +355,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
 
       await dbService.create('inventoryUnits', scannedImei, unit);
 
-      const created = await dbService.read('inventoryUnits', scannedImei);
+      const created = await readDoc('inventoryUnits', scannedImei);
       expect(created.imei).toBe(scannedImei);
       expect(created.model).toContain('iPhone 15 Pro');
       expect(created.grade).toBe('A');
@@ -394,7 +398,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
         postageCost: 8,
       });
 
-      const sold = await dbService.read('inventoryUnits', scannedImei);
+      const sold = await readDoc('inventoryUnits', scannedImei);
       expect(sold.status).toBe('sold');
       expect(sold.salePrice).toBe(520);
     });
@@ -445,7 +449,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
         returnReason: 'Customer changed mind',
       });
 
-      const returned = await dbService.read('inventoryUnits', soldUnitId);
+      const returned = await readDoc('inventoryUnits', soldUnitId);
       expect(returned.status).toBe('available');
       expect(returned.salePrice).toBeUndefined();
       expect(returned.returnType).toBe('back_to_inventory');
@@ -460,7 +464,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
         returnReason: 'Fault detected',
       });
 
-      const returned = await dbService.read('inventoryUnits', soldUnitId);
+      const returned = await readDoc('inventoryUnits', soldUnitId);
       expect(returned.status).toBe('returned');
       expect(returned.returnType).toBe('return_to_supplier');
     });
@@ -552,7 +556,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
 
     it('should calculate dashboard totals correctly', async () => {
       const units = await Promise.all(
-        unitIds.map(id => dbService.read('inventoryUnits', id))
+        unitIds.map(id => readDoc('inventoryUnits', id))
       );
 
       const stats = {
@@ -578,7 +582,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
 
     it('should show oldest units first on dashboard', async () => {
       const units = await Promise.all(
-        unitIds.map(id => dbService.read('inventoryUnits', id))
+        unitIds.map(id => readDoc('inventoryUnits', id))
       );
 
       const availableUnits = units
@@ -590,7 +594,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
 
     it('should display today\'s sales with latest at top', async () => {
       const units = await Promise.all(
-        unitIds.map(id => dbService.read('inventoryUnits', id))
+        unitIds.map(id => readDoc('inventoryUnits', id))
       );
 
       const todaySales = units
@@ -604,7 +608,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
     it('should update dashboard when unit status changes', async () => {
       // Initial state
       let units = await Promise.all(
-        unitIds.map(id => dbService.read('inventoryUnits', id))
+        unitIds.map(id => readDoc('inventoryUnits', id))
       );
       let availableCount = units.filter(u => u.status === 'available').length;
       expect(availableCount).toBe(1);
@@ -621,7 +625,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
 
       // Refresh and verify
       units = await Promise.all(
-        unitIds.map(id => dbService.read('inventoryUnits', id))
+        unitIds.map(id => readDoc('inventoryUnits', id))
       );
       availableCount = units.filter(u => u.status === 'available').length;
       expect(availableCount).toBe(0); // Now zero available
@@ -629,7 +633,7 @@ describe('E2E Workflows - Complete User Journeys', () => {
 
     it('should calculate profit/loss for dashboard summary', async () => {
       const units = await Promise.all(
-        unitIds.map(id => dbService.read('inventoryUnits', id))
+        unitIds.map(id => readDoc('inventoryUnits', id))
       );
 
       const soldUnits = units.filter(u => u.status === 'sold');

@@ -364,7 +364,7 @@ describe('E2E Workflows (Mocked) - Real Logic Testing', () => {
         saleOrderId: undefined,
         saleDate: undefined,
         postageCost: undefined,
-        returnType: 'back_to_inventory',
+        returnType: 'returned_to_inventory',
         returnDate: '2026-05-07',
         returnReason: 'Customer changed mind',
       });
@@ -372,7 +372,7 @@ describe('E2E Workflows (Mocked) - Real Logic Testing', () => {
       const returned = mockDb.read(soldId)!;
       expect(returned.status).toBe('available');
       expect(returned.salePrice).toBeUndefined();
-      expect(returned.returnType).toBe('back_to_inventory');
+      expect(returned.returnType).toBe('returned_to_inventory');
     });
 
     it('should track return to supplier separately', () => {
@@ -405,14 +405,14 @@ describe('E2E Workflows (Mocked) - Real Logic Testing', () => {
 
       mockDb.update(soldId, {
         status: 'returned',
-        returnType: 'return_to_supplier',
+        returnType: 'returned_to_supplier',
         returnDate: '2026-05-07',
         returnReason: 'Fault detected',
       });
 
       const returned = mockDb.read(soldId)!;
       expect(returned.status).toBe('returned');
-      expect(returned.returnType).toBe('return_to_supplier');
+      expect(returned.returnType).toBe('returned_to_supplier');
     });
   });
 
@@ -661,7 +661,7 @@ describe('E2E Workflows (Mocked) - Real Logic Testing', () => {
 
       shs.forEach(unit => {
         expect(unit.imei).toBe('');
-        expect(unit.flags).toContain('SHS');
+        expect(unit.stockSource).toBe('shs');
       });
     });
 
@@ -712,6 +712,9 @@ describe('E2E Workflows (Mocked) - Real Logic Testing', () => {
       const postage = 8;
       const profit = salePrice - availableUnit.buyPrice - fee - postage;
 
+      // `platform` and `profit` are legacy fields this mock still carries;
+      // InventoryUnit dropped them. The test is about the mock's own
+      // read-after-write, so the shape is cast rather than the test rewritten.
       mockDb.update(availableUnit.id, {
         status: 'sold',
         salePrice,
@@ -719,9 +722,9 @@ describe('E2E Workflows (Mocked) - Real Logic Testing', () => {
         saleDate: new Date().toISOString().split('T')[0],
         postage,
         profit,
-      });
+      } as any);
 
-      const updated = mockDb.read(availableUnit.id)!;
+      const updated = mockDb.read(availableUnit.id)! as any;
       expect(updated.status).toBe('sold');
       expect(updated.salePrice).toBe(salePrice);
       expect(updated.platform).toBe(platform);
@@ -750,8 +753,8 @@ describe('E2E Workflows (Mocked) - Real Logic Testing', () => {
       const all = mockDb.getAll();
       const sold = all.filter(u => u.status === 'sold');
 
-      const profitable = sold.filter(u => (u.profit || 0) > 0).length;
-      const losses = sold.filter(u => (u.profit || 0) < 0).length;
+      const profitable = sold.filter(u => ((u as any).profit || 0) > 0).length;
+      const losses = sold.filter(u => ((u as any).profit || 0) < 0).length;
 
       // Should have mix of profitable and loss sales
       expect(profitable).toBeGreaterThan(0);
