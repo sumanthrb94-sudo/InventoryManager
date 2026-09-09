@@ -143,13 +143,45 @@
   },
   {
     "script": "e2eAdminDeepDive.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 31,
+    "total": 31,
+    "summary": "31/31 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 89
+    "passes": [
+      "PASS  Sales History · \"Available to Sell\" matches the store — screen 28 · store 28",
+      "PASS  Sales History · the row tally is non-zero with sales loaded — 101 rows listed",
+      "PASS  Sales History · does not list a sale once per source — 101 rows · 101 live sales (93 sold units merged in)",
+      "PASS  Sales History · the row tally never exceeds sales + unmatched units — upper bound sanity",
+      "PASS  Sales History · search narrows the list — 101 → 1 for \"AMA-5000\"",
+      "PASS  Sales History · the searched order is the one shown",
+      "PASS  Reports · renders figures",
+      "PASS  Reports · Stock Report per-model counts sum to available stock — 28 across 7 models · store 28",
+      "PASS  Reports · the CSV export contains rows, not just a header — 7 data rows",
+      "PASS  Reports · the CSV export has one row per model in the table — 7 csv · 7 on screen",
+      "PASS  Insights · \"Per-Marketplace Margin\" renders",
+      "PASS  Insights · \"Top 10 Best Sellers\" renders",
+      "PASS  Insights · \"Slow Movers\" renders",
+      "PASS  Insights · \"Supplier Performance\" renders",
+      "PASS  Insights · \"Platform Scorecard\" renders",
+      "PASS  Insights · \"Aged Stock\" renders",
+      "PASS  Insights · \"Fast Movers\" renders",
+      "PASS  Insights · \"Sales Calendar\" renders",
+      "PASS  Insights · Platform Scorecard totals reconcile with sold units — {\"eBay\":18,\"Amazon\":19,\"OnBuy\":19,\"Backmarket\":19,\"Temu\":18} = 93 · store 93",
+      "PASS  Insights · a supplier table reconciles with live sales — [101,93] · live sales 101",
+      "PASS  Insights · a supplier table reconciles with sold units — [101,93] · sold units 93",
+      "PASS  Insights · sales are spread across suppliers, not pooled in one row — 4 of 4 supplier rows carry sales",
+      "PASS  Insights · the busiest supplier has a real return rate, not \"—\" — PHONEBOX DIRECT 32 sold, rate 0% · MOBILE WHOLESALE LTD 30 sold, rate 0% · CELLHUB TRADING 19 sold, rate 0%",
+      "PASS  Insights · no supplier name appears on two rows — 4 rows",
+      "PASS  Insights · no supplier table invents sales out of nowhere — max 101 · live sales 101",
+      "PASS  Insights · Aged Stock buckets sum to available stock — {\"0 – 30 days\":0,\"31 – 60 days\":9,\"61 – 90 days\":10,\"90+ days\":9} = 28 · available 28",
+      "PASS  Insights · no section shows a bare zero while sales exist — the exact failure the live screenshot showed",
+      "PASS  mobile · Sales History does not overflow sideways — overflow=0px",
+      "PASS  mobile · Reports does not overflow sideways — overflow=0px",
+      "PASS  mobile · Insights does not overflow sideways — overflow=0px",
+      "PASS  no uncaught JS errors across the deep dive"
+    ],
+    "secs": 117
   },
   {
     "script": "e2eAdminDeleteAndQc.mjs",
@@ -189,22 +221,30 @@
   },
   {
     "script": "e2eAdminFunctional.mjs",
-    "ok": false,
-    "pass": 8,
-    "total": 8,
-    "summary": "}",
+    "ok": true,
+    "pass": 16,
+    "total": 16,
+    "summary": "16/16 checks passed",
     "fails": [],
     "passes": [
       "PASS  Configuration exposes a model-creation form",
-      "PASS  a new model is written to the catalog — 6 → 7",
+      "PASS  a new model is written to the catalog — 7 → 8",
       "PASS  the new model is visible in the table",
-      "PASS  adding the same model twice does not create a second catalog row — 7 → 7",
+      "PASS  adding the same model twice does not create a second catalog row — 8 → 8",
       "PASS  Configuration exposes a supplier-creation form",
       "PASS  a new supplier is written — 2 → 3",
       "PASS  a duplicate supplier is refused at the form — refused",
-      "PASS  the refusal says which supplier it clashed with"
+      "PASS  the refusal says which supplier it clashed with",
+      "PASS  the imported sales produced sold units to report on — 75 sold units across the marketplaces",
+      "PASS  Platform Scorecard counts the imported sales — Amazon 19/19 · Backmarket 19/19 · eBay 18/18 · OnBuy 19/19",
+      "PASS  the scorecard is not uniformly zero while sales exist — the exact failure the live screenshot showed",
+      "PASS  Data Health runs the duplicate-supplier check",
+      "PASS  Data Health runs the unrecognised-platform check",
+      "PASS  every sale whose supplier exists in the catalog carries its supplierId — 101 of 101 resolvable · 0 have no supplier record",
+      "PASS  sales with no supplier record keep their own name, not a shared bucket — none",
+      "PASS  no uncaught JS errors"
     ],
-    "secs": 115
+    "secs": 119
   },
   {
     "script": "e2eAdminSections.mjs",
@@ -680,7 +720,7 @@
     "summary": "}",
     "fails": [],
     "passes": [],
-    "secs": 83
+    "secs": 84
   },
   {
     "script": "e2eReportsInsightsBrutal.mjs",
@@ -1065,13 +1105,25 @@
   },
   {
     "script": "e2eVatCentre.mjs",
-    "ok": false,
-    "pass": null,
-    "total": null,
-    "summary": "}",
+    "ok": true,
+    "pass": 11,
+    "total": 11,
+    "summary": "11/11 checks passed",
     "fails": [],
-    "passes": [],
-    "secs": 90
+    "passes": [
+      "PASS  Admin has a Money section",
+      "PASS  Money opens on VAT",
+      "PASS  the historical reading matches the imported sales — screen 2011.74 · data 2011.74",
+      "PASS  the margin-scheme reading matches the imported sales — screen 2069.44 · data 2069.44",
+      "PASS  flooring never lowers the total — 2069.44 >= 2011.74",
+      "PASS  the difference is surfaced with the count behind it — 2 loss-making sales in 2026-Q3",
+      "PASS  every loss-making sale is listed for the accountant — 2 rows · 2 expected",
+      "PASS  the export carries summary, stock book and the loss list — VAT Summary, Stock Book, Loss-Making Sales",
+      "PASS  the stock book has one row per sale in the quarter — 103 rows · 103 sales",
+      "PASS  mobile · VAT centre does not overflow sideways — overflow=0px",
+      "PASS  no uncaught JS errors"
+    ],
+    "secs": 110
   },
   {
     "script": "e2eVatCentreBrutal.mjs",

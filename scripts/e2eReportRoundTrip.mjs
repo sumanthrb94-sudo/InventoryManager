@@ -357,7 +357,28 @@ async function run() {
     }
   };
   await fill('input[placeholder="IMEI required"]', '350190000009999');
-  await fill('input[placeholder="Search model…"]', 'IPHONE 12');
+  // MODEL IS A CATALOGUE PICKER, NOT A TEXT BOX. Typing the name leaves the
+      // row "on a model not in your catalog" and Confirm stays locked — the gate
+      // that stops supplier product codes becoming model names. The entry has to
+      // be CHOSEN. And the box is never empty: it carries the sheet's own model
+      // string, which is exactly why the row is held, so "fill only the empty
+      // ones" skipped every row that needed fixing.
+      {
+        const modelBoxes = modal(page).locator('input[placeholder="Search model…"]');
+        for (let i = 0; i < await modelBoxes.count(); i++) {
+          const box = modelBoxes.nth(i);
+          await box.scrollIntoViewIfNeeded().catch(() => {});
+          await box.click();
+          await box.fill('');
+          await page.waitForTimeout(200);
+          await box.fill('IPHONE 12');
+          await page.waitForTimeout(700);
+          const option = page.locator('div[role="listbox"] button[role="option"]').first();
+          if (await option.isVisible().catch(() => false)) await option.click();
+          else await box.press('Escape').catch(() => {});
+          await page.waitForTimeout(300);
+        }
+      }
   await fill('input[placeholder="Supplier required"]', 'MOBILE WHOLESALE LTD');
   const numeric = modal(page).locator('input[type="number"]');
   for (let i = 0; i < await numeric.count(); i++) {
