@@ -195,6 +195,45 @@ async function run() {
   record('the removal is listed once, not once per source', occurrences === 1,
     `${occurrences} row(s) mentioning the IMEI`);
 
+  // ── E. A non-admin employee sees the same removal, read-only ─────────────
+  //
+  // This is the half that actually answers "can the team see it?". The
+  // persona switch happens in the SAME tab on purpose: the shim's store
+  // lives in sessionStorage, so a fresh context would start from seed data
+  // with no deletion in it and the check would pass against nothing.
+  await page.goto(`${BASE}?e2eUser=employee`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1800);
+  await gotoTab(page, 'Notices');
+  await page.waitForTimeout(1200);
+  await shot(page, 'employee-sees-removal-log');
+
+  const empBoard = await page.evaluate(() => document.body.innerText);
+  record('an employee sees the removal on the notice board', empBoard.includes(imei), imei);
+  record('an employee sees why it was removed', empBoard.includes(REASON), REASON);
+
+  const empRow = rowContaining(page, imei);
+  record('the employee view badges it permanent',
+    await empRow.locator('text=/Log · permanent/i').count() > 0);
+  record('an employee gets NO edit or delete on any row',
+    await page.getByRole('button', { name: /^(edit|delete)$/i }).count() === 0);
+  record('an employee gets no compose box', await page.locator('textarea').count() === 0);
+
+  // ── F. And on a phone, which is what the warehouse actually uses ─────────
+  //
+  // Resize THIS tab rather than opening a new context. A new context gets
+  // its own sessionStorage, so the shim would reseed with no deletion in it
+  // and a "can the employee see the log on a phone?" check would pass
+  // against an empty board — proving nothing. That is exactly what the
+  // first version of this check did.
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.waitForTimeout(800);
+  await gotoTab(page, 'Notices');
+  await page.waitForTimeout(1200);
+  await shot(page, 'employee-phone');
+  const phoneBoard = await page.evaluate(() => document.body.innerText);
+  record('an employee sees the removal on a phone too', phoneBoard.includes(imei), imei);
+  record('the phone view still badges it permanent', /Log · permanent/i.test(phoneBoard));
+
   record('no uncaught JS errors on the notice board', jsErrors.length === 0,
     jsErrors.slice(0, 2).join(' | '));
 
