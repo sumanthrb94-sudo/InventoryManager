@@ -341,6 +341,22 @@ export interface Notice {
   updatedAt?: string;     // bumped on admin edit
   createdBy?: string;     // admin email
   ownerId: string;
+  /**
+   * `'log'` marks a notice the SYSTEM wrote to record something that
+   * happened — today, a unit leaving inventory. It is not a message anyone
+   * chose to write, so it is not a message anyone may rewrite or remove:
+   * firestore.rules denies update and delete on any notice carrying this,
+   * admins included, and the board renders it without edit/delete controls.
+   *
+   * Absent on an ordinary team notice, which stays fully editable. The flag
+   * is deliberately one-way — the rules refuse every update to a log notice,
+   * so it cannot be cleared once set.
+   */
+  kind?: 'log';
+  /** For a removal log line, the `deletedUnits` record it reports. Lets the
+   *  board show the indelible archive and its notice as ONE entry instead of
+   *  the same deletion twice. */
+  logRef?: string;
 }
 
 /**

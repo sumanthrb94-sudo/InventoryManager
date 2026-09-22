@@ -267,11 +267,31 @@ service cloud.firestore {
     // everyone reads, only the admin email writes. Per-doc ownerId still
     // resolves to 'shared' so create/update share the same shape as the
     // rest of the dataset.
+    // ── notices — team board, PLUS the removal log. ────────────────────────
+    //
+    // Two kinds of document share this collection and must not share its
+    // permissions. An ordinary notice is a message an admin chose to write,
+    // and they may fix or remove it. A notice stamped `kind: 'log'` is one
+    // the SYSTEM wrote to record a unit leaving inventory — nobody chose its
+    // words, so nobody gets to change them or take them away.
+    //
+    // Operator's requirement, restated 2026-09-22: the log has to be
+    // undeletable. `deletedUnits` was already indelible, but the line the
+    // team actually SEES lived here and an admin could quietly delete it —
+    // the tombstone survived where no one was looking while the visible
+    // record vanished. Same standard now applies to both.
+    //
+    // The test reads the EXISTING doc (`resource.data`), not the incoming
+    // one, so a log notice cannot be rescued by an update that drops the
+    // flag: every update to it is refused outright.
     match /notices/{noticeId} {
+      function isLogNotice() {
+        return resource != null && resource.data.get('kind', '') == 'log';
+      }
       allow read:   if isSignedIn();
       allow create: if isAdmin() && ownsShared();
-      allow update: if isAdmin() && staysShared();
-      allow delete: if isAdmin();
+      allow update: if isAdmin() && staysShared() && !isLogNotice();
+      allow delete: if isAdmin() && !isLogNotice();
     }
 
     // Models: admin-curated catalog of (brand, model) pairs. Employees

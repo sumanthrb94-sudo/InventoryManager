@@ -1059,6 +1059,13 @@ export async function deleteOfficeUnit(
       createdAt: now,
       createdBy: adminEmail,
       ownerId: 'shared',
+      // Not a message someone chose to write — a record of a unit leaving
+      // stock. `kind: 'log'` is what firestore.rules reads to refuse every
+      // later edit and delete, so the visible line is as permanent as the
+      // archive behind it. `logRef` ties the two together so the board shows
+      // one entry per deletion rather than the notice and the tombstone.
+      kind: 'log',
+      ...(archived.id ? { logRef: archived.id } : {}),
     };
 
     await Promise.all([

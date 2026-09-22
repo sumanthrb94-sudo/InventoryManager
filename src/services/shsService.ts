@@ -70,6 +70,10 @@ async function postDeletionNotice(payload: {
     createdAt: now,
     createdBy: adminEmail,
     ownerId: 'shared',
+    // A record of stock leaving, not a team message — permanent by rule.
+    // SHS deletions have no `deletedUnits` tombstone yet, so this notice is
+    // the ONLY record of them and had to stop being deletable first.
+    kind: 'log',
   };
   await dbService.create('notices', id, notice);
 }

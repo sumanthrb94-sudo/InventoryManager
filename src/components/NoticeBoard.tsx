@@ -21,12 +21,13 @@
  * and a quiet line so an empty board doesn't feel broken.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Megaphone, Send, Edit3, CheckCircle2, X, Trash2 } from 'lucide-react';
+import { Megaphone, Send, Edit3, CheckCircle2, X, Trash2, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { useIsAdmin } from '../lib/useIsAdmin';
+import { useInventoryStore, useLazyCollection } from '../lib/inventoryStore';
 import { auth } from '../lib/firebase';
-import type { Notice } from '../types';
+import type { Notice, DeletedUnitRecord } from '../types';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -49,6 +50,54 @@ function fmtTimestamp(iso: string): string {
   return `${day} · ${date} · ${time}`;
 }
 
+/**
+ * One row of the board, from either of the two sources behind it.
+ *
+ * A removal is recorded twice on purpose — an indelible `deletedUnits`
+ * tombstone written BEFORE the unit goes, and a notice so the team can see
+ * it without opening an admin page. Showing both would report every deletion
+ * twice, so they are folded into one entry on the notice's `logRef`.
+ */
+interface FeedEntry {
+  id: string;
+  /** ISO, for sorting and display. */
+  at: string;
+  body: string;
+  /** Permanent system record: no edit, no delete, enforced by firestore.rules
+   *  and not merely by hiding the buttons. */
+  isLog: boolean;
+  /** The underlying notice doc, when this row came from one. Archive-only
+   *  rows have none, and nothing on them is actionable anyway. */
+  notice?: Notice;
+}
+
+/** Free text, so it may be blank or punctuation. Mirrors DeletedUnitsPage —
+ *  the archive records what the operator typed, it does not improve it. */
+function readableReason(reason: string | undefined): string {
+  const r = (reason || '').trim();
+  return /[a-z0-9]/i.test(r) ? r : '(no reason recorded)';
+}
+
+/**
+ * Render a tombstone in the same shape as the notice its deletion would have
+ * posted, so the feed reads consistently whether or not that notice landed.
+ * A VOID record is one whose archive write succeeded but whose delete then
+ * failed — the unit is still in stock and this must never read as a removal.
+ */
+function archiveLine(r: DeletedUnitRecord): string {
+  const parts = [
+    r.voided ? 'Deletion FAILED — unit still in stock' : 'Stock deleted',
+    r.model,
+    r.colour,
+    r.storage,
+    r.imei ? `IMEI ${r.imei}` : undefined,
+    r.supplierName ? `supplier: ${r.supplierName}` : undefined,
+    `— ${readableReason(r.reason)}`,
+    `(by ${r.deletedBy || 'admin'} · ${String(r.deletedAt || '').slice(0, 10)})`,
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
 export default function NoticeBoard() {
   const isAdmin = useIsAdmin();
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -58,6 +107,10 @@ export default function NoticeBoard() {
   /** id of the notice the admin is currently editing — null when not editing. */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
+  // The removal log's indelible source. Opened here so the board can show
+  // deletions whose notice never landed, not just the ones that did.
+  useLazyCollection('deletedUnits');
+  const { deletedUnits } = useInventoryStore();
 
   useEffect(() => {
     // Belt-and-braces loaded flag: dbService.subscribeToCollection's
@@ -81,11 +134,41 @@ export default function NoticeBoard() {
     };
   }, []);
 
-  /** Newest first — the chat-history convention. */
-  const sorted = useMemo(
-    () => [...notices].sort((a, b) => timestampToIso(b.createdAt).localeCompare(timestampToIso(a.createdAt))),
-    [notices],
-  );
+  /**
+   * Newest first — the chat-history convention — across BOTH sources.
+   *
+   * The archive is opened here as well as on the admin page because the
+   * operator asked for the removal log to be visible on the board rather
+   * than only somewhere an employee cannot reach. It costs a subscription on
+   * a commonly-opened tab; the collection grows by one document per deletion
+   * and was not back-filled, so it is small and stays small.
+   */
+  const feed = useMemo<FeedEntry[]>(() => {
+    const fromNotices: FeedEntry[] = notices.map(n => ({
+      id: n.id,
+      at: timestampToIso(n.createdAt),
+      body: n.content,
+      isLog: n.kind === 'log',
+      notice: n,
+    }));
+
+    // A tombstone already reported by a notice is the same event, not a
+    // second one. Anything left over is a deletion whose notice never landed
+    // (or predates the flag) and would otherwise be invisible here.
+    const reported = new Set(notices.map(n => n.logRef).filter(Boolean) as string[]);
+    const fromArchive: FeedEntry[] = deletedUnits
+      .filter(r => !reported.has(r.id))
+      .map(r => ({
+        id: `archive_${r.id}`,
+        at: String(r.deletedAt || ''),
+        body: archiveLine(r),
+        isLog: true,
+      }));
+
+    return [...fromNotices, ...fromArchive].sort((a, b) => b.at.localeCompare(a.at));
+  }, [notices, deletedUnits]);
+
+  const logCount = useMemo(() => feed.filter(e => e.isLog).length, [feed]);
 
   const post = async () => {
     const text = draft.trim();
@@ -106,7 +189,13 @@ export default function NoticeBoard() {
     }
   };
 
+  /** A log notice is not editable or removable by anyone. The rules are the
+   *  real boundary; these two guards stop the UI from ever ASKING, which is
+   *  what turns a refusal into a confusing error toast. */
+  const isLocked = (n: Notice) => n.kind === 'log';
+
   const startEdit = (n: Notice) => {
+    if (isLocked(n)) return;
     setEditingId(n.id);
     setEditDraft(n.content);
   };
@@ -125,6 +214,7 @@ export default function NoticeBoard() {
   };
 
   const deleteNotice = async (n: Notice) => {
+    if (isLocked(n)) return;
     if (!window.confirm('Delete this notice permanently?')) return;
     try {
       await dbService.delete('notices', n.id);
@@ -144,9 +234,9 @@ export default function NoticeBoard() {
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold tracking-tight">Notice Board</h2>
             <p className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
-              {isAdmin
-                ? `Admin · ${sorted.length} ${sorted.length === 1 ? 'notice' : 'notices'}`
-                : `Read-only · ${sorted.length} ${sorted.length === 1 ? 'notice' : 'notices'}`}
+              {(isAdmin ? 'Admin' : 'Read-only')
+                + ` · ${feed.length} ${feed.length === 1 ? 'entry' : 'entries'}`
+                + (logCount > 0 ? ` · ${logCount} permanent log` : '')}
             </p>
           </div>
         </div>
@@ -194,7 +284,7 @@ export default function NoticeBoard() {
             />
             <p className="text-[11px] font-mono uppercase tracking-widest">Loading notices…</p>
           </div>
-        ) : sorted.length === 0 ? (
+        ) : feed.length === 0 ? (
           <div className="py-16 flex flex-col items-center gap-2 text-slate-400">
             <CheckCircle2 size={28} className="text-emerald-500" />
             <p className="text-[11px] font-mono uppercase tracking-widest">No notices yet</p>
@@ -205,24 +295,36 @@ export default function NoticeBoard() {
         ) : (
           <ul className="divide-y divide-slate-100">
             <AnimatePresence initial={false}>
-              {sorted.map(n => {
-                const editing = editingId === n.id;
+              {feed.map(entry => {
+                const n = entry.notice;
+                const editing = !!n && editingId === n.id;
                 return (
                   <motion.li
-                    key={n.id}
+                    key={entry.id}
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.15 }}
-                    className="px-5 py-4 hover:bg-slate-50"
+                    className={entry.isLog ? 'px-5 py-4 bg-slate-50/60' : 'px-5 py-4 hover:bg-slate-50'}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">
-                            {fmtTimestamp(timestampToIso(n.createdAt))}
+                            {fmtTimestamp(entry.at)}
                           </span>
-                          {n.updatedAt && n.updatedAt !== n.createdAt && (
+                          {/* Says the quiet part out loud: this row is a
+                              record, not a message, and nobody — admin
+                              included — can edit or remove it. */}
+                          {entry.isLog && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest bg-slate-200 text-slate-700"
+                              title="System log · permanent. Cannot be edited or deleted by anyone."
+                            >
+                              <Lock size={8} /> Log · permanent
+                            </span>
+                          )}
+                          {n?.updatedAt && n.updatedAt !== n.createdAt && (
                             <span className="text-[8px] font-mono uppercase tracking-widest text-slate-400 italic" title={`Edited ${fmtTimestamp(timestampToIso(n.updatedAt))}`}>
                               edited
                             </span>
@@ -233,8 +335,8 @@ export default function NoticeBoard() {
                               individual admin email. The createdBy field
                               is still persisted on the doc as audit
                               trail and shown in the tooltip. */}
-                          <span className="text-[9px] font-mono text-slate-400" title={n.createdBy || 'admin'}>
-                            · Admin
+                          <span className="text-[9px] font-mono text-slate-400" title={n?.createdBy || 'admin'}>
+                            · {entry.isLog ? 'System' : 'Admin'}
                           </span>
                         </div>
                         {editing ? (
@@ -247,11 +349,14 @@ export default function NoticeBoard() {
                           />
                         ) : (
                           <p className="mt-1 text-[13px] text-slate-900 whitespace-pre-wrap break-words">
-                            {n.content}
+                            {entry.body}
                           </p>
                         )}
                       </div>
-                      {isAdmin && (
+                      {/* No controls on a log row. The rules refuse the write
+                          regardless; hiding the buttons stops an admin being
+                          offered an action the database will reject. */}
+                      {isAdmin && !entry.isLog && n && (
                         <div className="flex items-center gap-1 flex-shrink-0">
                           {editing ? (
                             <>
