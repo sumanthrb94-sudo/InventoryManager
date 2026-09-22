@@ -262,12 +262,11 @@ service cloud.firestore {
       allow write:  if isAdmin();
     }
 
-    // Notices: admin-authored team broadcast board (date-stamped posts
-    // visible to every signed-in employee). Treat like marketplaceFees:
-    // everyone reads, only the admin email writes. Per-doc ownerId still
-    // resolves to 'shared' so create/update share the same shape as the
-    // rest of the dataset.
     // ── notices — team board, PLUS the removal log. ────────────────────────
+    //
+    // Admin-authored broadcast posts, readable by every signed-in employee
+    // and writable only by the admin emails. Per-doc ownerId still resolves
+    // to 'shared' so create/update share the shape of the rest of the data.
     //
     // Two kinds of document share this collection and must not share its
     // permissions. An ordinary notice is a message an admin chose to write,
