@@ -51,6 +51,13 @@ export const COLOR_SYNONYMS: Record<string, string> = {
   'pearl white': 'White',
   'phantom white': 'Phantom White',
 
+  // Navy sits ABOVE plain blue deliberately. extractColour walks this map
+  // in insertion order and returns the first synonym the text CONTAINS, so
+  // 'blue' would swallow "Navy Blue" and write Blue. Keep any colour whose
+  // name contains another colour's name above that shorter name.
+  navy: 'Navy',
+  'navy blue': 'Navy',
+
   blue: 'Blue',
   'pacific blue': 'Pacific Blue',
   'sierra blue': 'Sierra Blue',
@@ -63,10 +70,15 @@ export const COLOR_SYNONYMS: Record<string, string> = {
   silver: 'Silver',
   'polished silver': 'Silver',
 
-  gray: 'Space Grey',
-  grey: 'Space Grey',
+  // Same ordering rule as Navy: 'space grey' must sit above bare 'grey',
+  // which contains it. Bare grey now reads as Grey rather than Space Grey —
+  // a box that says "Grey" means Grey, and Grey is what the Add Stock
+  // dropdown writes. While these disagreed, the same handset filed itself
+  // under two colours depending on whether it was typed or scanned.
   'space grey': 'Space Grey',
   'space gray': 'Space Grey',
+  gray: 'Grey',
+  grey: 'Grey',
   'graphite': 'Graphite',
 
   green: 'Green',
