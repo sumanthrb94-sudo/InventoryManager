@@ -14,9 +14,18 @@ describe('colour presets are shared, not copied (operator asked for Silver, 2026
   /** Silver was missing from Add Stock while the sales-audit dropdown had
    *  offered it for months — three private COLOUR_PRESETS copies had drifted
    *  apart, the same failure the GRADE_OPTIONS docblock records. Adding a
-   *  colour must now be a one-line change that every intake path picks up. */
-  it('includes Silver alongside the original four', () => {
-    expect(COLOUR_PRESETS).toEqual(['Black', 'White', 'Grey', 'Blue', 'Silver']);
+   *  colour must now be a one-line change that every intake path picks up.
+   *  Purple and Violet were added the same way on 2026-09-22. */
+  it('includes Silver, Purple and Violet alongside the original four', () => {
+    expect(COLOUR_PRESETS).toEqual(['Black', 'White', 'Grey', 'Blue', 'Silver', 'Purple', 'Violet']);
+  });
+
+  /** The dropdown renders COLOUR_PRESETS in order, so a new colour appended
+   *  at the end leaves every existing option where the operator's thumb
+   *  already expects it. Inserting one mid-list would silently move the
+   *  four they tap most. */
+  it('keeps the original options in their original positions', () => {
+    expect(COLOUR_PRESETS.slice(0, 5)).toEqual(['Black', 'White', 'Grey', 'Blue', 'Silver']);
   });
 
   it('neither intake screen declares its own copy', () => {

@@ -78,6 +78,7 @@ export const COLOR_SYNONYMS: Record<string, string> = {
 
   purple: 'Purple',
   'deep purple': 'Purple',
+  violet: 'Violet',
 
   pink: 'Pink',
   'coral': 'Coral',

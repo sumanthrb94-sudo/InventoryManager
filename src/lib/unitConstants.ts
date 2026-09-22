@@ -30,9 +30,14 @@ export const SIM_TYPE_OPTIONS = ['Physical SIM', 'Physical SIM + eSIM', 'Dual Ph
  * carried its own copy, and copies drift. 'Silver' was added here at the
  * operator's request (2026-09-03) after it was missing from the Add Stock
  * dropdown — with one list, adding it once covers every intake path
- * instead of fixing the same gap twice.
+ * instead of fixing the same gap twice. 'Purple' and 'Violet' followed on
+ * the same request (2026-09-22); Blue and Black were already present.
+ *
+ * New colours go on the END. The dropdown renders in this order, so
+ * inserting one in the middle shifts every option below it and re-teaches
+ * the operator's muscle memory on the highest-volume screen in the app.
  */
-export const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue', 'Silver'] as const;
+export const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue', 'Silver', 'Purple', 'Violet'] as const;
 export type ColourPreset = typeof COLOUR_PRESETS[number];
 
 export type Grade = typeof GRADE_OPTIONS[number];
