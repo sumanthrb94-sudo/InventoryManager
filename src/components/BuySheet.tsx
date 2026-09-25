@@ -32,6 +32,7 @@ import { normalizeBucketModel, parseBrandModelStorage } from '../lib/modelStorag
 import { fmtDateForUser, useUserRegion } from '../lib/userLocale';
 import { auth, isAdmin } from '../lib/firebase';
 import { isStockOnHand } from '../lib/inventoryFilters';
+import { formatDeletionDate } from '../lib/deletedUnitLookup';
 import IntelligencePanel from './IntelligencePanel';
 import AddStockManualModal from './AddStockManualModal';
 import BulkOrderModal from './BulkOrderModal';
@@ -332,20 +333,9 @@ export default function BuySheet(_props: Props) {
 
   const rtsToday = useMemo(() => {
     const todayStr = localToday();
-    const filtered = deletedUnits.filter(r => {
-      if (r.voided) return false;
-      const dayStr = localDay(r.deletedAt);
-      return dayStr === todayStr;
-    });
-    // Debug: log the first few deletedAt values so we can see
-    // what shape they arrive in from Firestore.
-    if (deletedUnits.length > 0 && filtered.length !== 0) {
-      console.log('[RTS debug] today =', todayStr,
-        '| sample deletedAt values:', deletedUnits.slice(0, 3).map(r => ({
-          raw: r.deletedAt, localDay: localDay(r.deletedAt),
-        })));
-    }
-    return filtered;
+    return deletedUnits
+      .filter(r => !r.voided && localDay(r.deletedAt) === todayStr)
+      .sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
   }, [deletedUnits, nowMs]);
 
   // "Out of Stock · Last 72 Hours" — SKU buckets with 0 available and at least
@@ -1619,6 +1609,13 @@ export function buildOutOfStockBuckets(
   return Array.from(map.values());
 }
 
+function formatDeletionDateTime(iso: string | undefined): string {
+  if (!iso) return '—';
+  const dateStr = formatDeletionDate(iso);
+  const timeStr = typeof iso === 'string' && iso.length >= 16 ? iso.slice(11, 16) : '';
+  return timeStr ? `${dateStr}, ${timeStr}` : dateStr || '—';
+}
+
 // ── RTS (Return to Supplier) overlay ─────────────────────────────────────────
 
 function RtsOverlay({ records, onClose }: { records: DeletedUnitRecord[]; onClose: () => void }) {
@@ -1666,7 +1663,7 @@ function RtsOverlay({ records, onClose }: { records: DeletedUnitRecord[]; onClos
                   <th className="text-right px-4 py-2.5 font-medium">BP</th>
                   <th className="text-left px-4 py-2.5 font-medium">Reason</th>
                   <th className="text-left px-4 py-2.5 font-medium">Deleted By</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Time</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Date & Time</th>
                 </tr>
               </thead>
               <tbody>
@@ -1688,8 +1685,8 @@ function RtsOverlay({ records, onClose }: { records: DeletedUnitRecord[]; onClos
                       {r.reason || '—'}
                     </td>
                     <td className="px-4 py-2 text-slate-500">{r.deletedBy || '—'}</td>
-                    <td className="px-4 py-2 text-slate-400 font-mono whitespace-nowrap">
-                      {r.deletedAt ? r.deletedAt.slice(11, 16) : '—'}
+                    <td className="px-4 py-2 text-slate-500 font-mono whitespace-nowrap">
+                      {formatDeletionDateTime(r.deletedAt)}
                     </td>
                   </tr>
                 ))}
