@@ -25,7 +25,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import ExcelJS from 'exceljs';
 import { dbService } from '../lib/dbService';
 import { isSameLocalDay } from '../lib/firestoreTime';
-import { InventoryUnit, InventoryAggregate, Supplier, AccessoryStock } from '../types';
+import { InventoryUnit, InventoryAggregate, Supplier, AccessoryStock, DeletedUnitRecord } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { shsAggregatesFrom } from '../lib/shsCount';
 import { normalizeBucketModel, parseBrandModelStorage } from '../lib/modelStorage';
@@ -50,7 +50,7 @@ import ReportRangeMenu from './ReportRangeMenu';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type KpiId = 'recent' | 'office' | 'shs' | 'sold_today' | 'out_of_stock';
+type KpiId = 'recent' | 'office' | 'shs' | 'rts' | 'out_of_stock';
 type StatusFilter = 'available' | 'incoming' | 'returned';
 
 interface Props {
@@ -205,7 +205,7 @@ export function buildAlertLabel(brand: string, rawModel: string, storage: string
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function BuySheet(_props: Props) {
-  const { units, suppliers, aggregates, sales, accessoryStock } = useInventoryStore();
+  const { units, suppliers, aggregates, sales, accessoryStock, deletedUnits, requestCollection } = useInventoryStore();
   const region = useUserRegion();
   const userIsAdmin = isAdmin(auth.currentUser);
 
@@ -324,20 +324,15 @@ export default function BuySheet(_props: Props) {
     [aggregates],
   );
 
-  // "Sold Today" — counted by SALE DATE, on the operator's LOCAL calendar day
-  // (isSameLocalDay, not a UTC-midnight bucket: an evening sale in IST used to
-  // land on the next UTC date and vanish). That is the same rule the Sell
-  // screen uses, so the two screens agree by construction.
-  //
-  // This used to be a rolling 24h over `updatedAt`, which is the last write to
-  // the doc FOR ANY REASON — processing a return, completing a repair, an
-  // admin edit. On a day of ordinary admin work that counted five sold units
-  // as "sold today" while the Sell screen counted the two that actually sold.
-  // (It also read 0 on production before the Timestamp fix, which masked the
-  // semantic problem behind a broken one — see lib/firestoreTime.ts.)
-  const soldToday = useMemo(() => units.filter(u =>
-    u.status === 'sold' && isSameLocalDay(u.saleDate)
-  ), [units, nowMs]);
+  // ── RTS Today — units deleted from inventory today ──────────────────────
+  // Uses the deletedUnits archive (lazy collection). Filtered to today's
+  // local calendar day, excluding voided records (where the delete itself
+  // failed after the archive landed).
+  useEffect(() => { requestCollection('deletedUnits'); }, [requestCollection]);
+
+  const rtsToday = useMemo(() => deletedUnits.filter(r =>
+    !r.voided && isSameLocalDay(r.deletedAt)
+  ), [deletedUnits, nowMs]);
 
   // "Out of Stock · Last 72 Hours" — SKU buckets with 0 available and at least
   // one sale, whose latest sale happened within the rolling 72-hour window.
@@ -385,10 +380,10 @@ export default function BuySheet(_props: Props) {
       recent: recentUnits.length,
       office: Math.max(aggOffice, officeUnits.length),
       shs: shsCount,
-      soldToday: soldToday.length,
+      rts: rtsToday.length,
       outOfStock: outOfStock72h.length,
     };
-  }, [aggregates, recentUnits.length, officeUnits.length, shsAggs.length, shsUnits.length, soldToday.length, outOfStock72h.length]);
+  }, [aggregates, recentUnits.length, officeUnits.length, shsAggs.length, shsUnits.length, rtsToday.length, outOfStock72h.length]);
 
   // Accessory pools (no-IMEI quantity stock) — separate from the unit-based
   // KPIs above since accessories never create an InventoryUnit.
@@ -434,18 +429,17 @@ export default function BuySheet(_props: Props) {
 
   // Rows scoped to a KPI tile when the overlay is open.
   const overlayRows = useMemo<InventoryUnit[]>(() => {
-    if (!overlay) return [];
+    if (!overlay || overlay === 'rts') return [];
     let base: InventoryUnit[];
     switch (overlay) {
       case 'recent':     base = recentUnits; break;
       case 'office':     base = officeUnits; break;
       case 'shs':        base = shsUnits; break;
-      case 'sold_today': base = soldToday; break;
       default:           base = units;
     }
     return applyPanelFilters(base);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overlay, recentUnits, officeUnits, shsUnits, soldToday, units, search, statusFilter, supplierFilter, supplierMap]);
+  }, [overlay, recentUnits, officeUnits, shsUnits, units, search, statusFilter, supplierFilter, supplierMap]);
 
   // Rows for the always-on inline table (every unit, panel-filtered).
   const inlineRows = useMemo<InventoryUnit[]>(
@@ -797,10 +791,10 @@ export default function BuySheet(_props: Props) {
             onClick={() => setOverlay('shs')}
           />
           <BigKpiTile
-            label="Sold Today"
-            value={kpiCounts.soldToday}
-            tone="slate"
-            onClick={() => setOverlay('sold_today')}
+            label="RTS Today"
+            value={kpiCounts.rts}
+            tone="amber"
+            onClick={() => setOverlay('rts')}
           />
           <BigKpiTile
             label="Accessory SKUs"
@@ -961,7 +955,7 @@ export default function BuySheet(_props: Props) {
 
       {/* ── Excel overlay modal — opens when a KPI tile is clicked ────────── */}
       <AnimatePresence>
-        {overlay && overlay !== 'out_of_stock' && (
+        {overlay && overlay !== 'out_of_stock' && overlay !== 'rts' && (
           <StockOverlayModal
             title={titleFor(overlay)}
             rows={sortedRows}
@@ -980,6 +974,9 @@ export default function BuySheet(_props: Props) {
             buckets={outOfStock72h}
             onClose={() => setOverlay(null)}
           />
+        )}
+        {overlay === 'rts' && (
+          <RtsOverlay records={rtsToday} onClose={() => setOverlay(null)} />
         )}
       </AnimatePresence>
 
@@ -1608,6 +1605,95 @@ export function buildOutOfStockBuckets(
   return Array.from(map.values());
 }
 
+// ── RTS (Return to Supplier) overlay ─────────────────────────────────────────
+
+function RtsOverlay({ records, onClose }: { records: DeletedUnitRecord[]; onClose: () => void }) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-[60] flex flex-col bg-white"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
+        <div>
+          <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400 mb-0.5">Buy · Return to Supplier</p>
+          <h3 className="text-sm font-bold text-slate-900">
+            RTS Today — <span className="text-amber-600">{records.length}</span> unit{records.length === 1 ? '' : 's'} removed
+          </h3>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto">
+        {records.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+            <PackageX size={32} />
+            <p className="text-xs font-medium">No units returned to supplier today</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="bg-slate-50 text-[9px] font-mono uppercase tracking-widest text-slate-500 sticky top-0">
+                  <th className="text-left px-4 py-2.5 font-medium">#</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Model</th>
+                  <th className="text-left px-4 py-2.5 font-medium">IMEI</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Storage</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Colour</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Supplier</th>
+                  <th className="text-right px-4 py-2.5 font-medium">BP</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Reason</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Deleted By</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((r, i) => (
+                  <tr
+                    key={r.id}
+                    className={`border-b border-slate-50 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-amber-50/40 transition-colors`}
+                  >
+                    <td className="px-4 py-2 text-slate-400 font-mono">{i + 1}</td>
+                    <td className="px-4 py-2 font-medium text-slate-800">{r.model || '—'}</td>
+                    <td className="px-4 py-2 font-mono text-slate-600">{r.imei || '—'}</td>
+                    <td className="px-4 py-2 text-slate-600">{r.storage || '—'}</td>
+                    <td className="px-4 py-2 text-slate-600">{r.colour || '—'}</td>
+                    <td className="px-4 py-2 text-slate-600">{r.supplierName || '—'}</td>
+                    <td className="px-4 py-2 text-right font-mono text-slate-700">
+                      {r.buyPrice != null ? `£${r.buyPrice}` : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-slate-600 max-w-[200px] truncate" title={r.reason}>
+                      {r.reason || '—'}
+                    </td>
+                    <td className="px-4 py-2 text-slate-500">{r.deletedBy || '—'}</td>
+                    <td className="px-4 py-2 text-slate-400 font-mono whitespace-nowrap">
+                      {r.deletedAt ? r.deletedAt.slice(11, 16) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-5 py-2.5 border-t border-slate-100 bg-slate-50/50 text-[9px] font-mono uppercase tracking-widest text-slate-500 flex-shrink-0">
+        {records.length} record{records.length === 1 ? '' : 's'} ·{' '}
+        £{records.reduce((s, r) => s + (r.buyPrice || 0), 0).toLocaleString()} total BP
+      </div>
+    </motion.div>
+  );
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function titleFor(kpi: KpiId): string {
@@ -1615,7 +1701,7 @@ function titleFor(kpi: KpiId): string {
     case 'recent':       return 'Stock Added In Last 72 Hours';
     case 'office':       return 'All Office Stock';
     case 'shs':          return 'SHS Stock';
-    case 'sold_today':   return 'Sold Today';
+    case 'rts':          return 'RTS Today';
     case 'out_of_stock': return 'Out of Stock \u00b7 Last 72 Hours';
   }
 }
