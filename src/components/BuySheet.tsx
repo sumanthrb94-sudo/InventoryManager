@@ -24,7 +24,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import ExcelJS from 'exceljs';
 import { dbService } from '../lib/dbService';
-import { isSameLocalDay } from '../lib/firestoreTime';
+import { isSameLocalDay, localDay, localToday } from '../lib/firestoreTime';
 import { InventoryUnit, InventoryAggregate, Supplier, AccessoryStock, DeletedUnitRecord } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { shsAggregatesFrom } from '../lib/shsCount';
@@ -330,9 +330,23 @@ export default function BuySheet(_props: Props) {
   // failed after the archive landed).
   useEffect(() => { requestCollection('deletedUnits'); }, [requestCollection]);
 
-  const rtsToday = useMemo(() => deletedUnits.filter(r =>
-    !r.voided && isSameLocalDay(r.deletedAt)
-  ), [deletedUnits, nowMs]);
+  const rtsToday = useMemo(() => {
+    const todayStr = localToday();
+    const filtered = deletedUnits.filter(r => {
+      if (r.voided) return false;
+      const dayStr = localDay(r.deletedAt);
+      return dayStr === todayStr;
+    });
+    // Debug: log the first few deletedAt values so we can see
+    // what shape they arrive in from Firestore.
+    if (deletedUnits.length > 0 && filtered.length !== 0) {
+      console.log('[RTS debug] today =', todayStr,
+        '| sample deletedAt values:', deletedUnits.slice(0, 3).map(r => ({
+          raw: r.deletedAt, localDay: localDay(r.deletedAt),
+        })));
+    }
+    return filtered;
+  }, [deletedUnits, nowMs]);
 
   // "Out of Stock · Last 72 Hours" — SKU buckets with 0 available and at least
   // one sale, whose latest sale happened within the rolling 72-hour window.
