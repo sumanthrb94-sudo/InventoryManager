@@ -137,12 +137,17 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
   }, [matchedUnits, selectedIds]);
 
   // ── 3. Execute bulk deletion ───────────────────────────────────────────────
-  const handleExecuteDelete = async () => {
+  const handleExecuteDelete = async (actionParam?: 'RTS' | 'FBA') => {
     if (unitsToProcess.length === 0) return;
 
+    const actionToUse = actionParam || selectedAction;
+    if (actionParam && actionParam !== selectedAction) {
+      setSelectedAction(actionParam);
+    }
+
     const fullReason = customNote.trim()
-      ? `${selectedAction} - ${customNote.trim()}`
-      : selectedAction;
+      ? `${actionToUse} - ${customNote.trim()}`
+      : actionToUse;
 
     const confirmMsg = `Are you sure you want to delete ${unitsToProcess.length} unit(s) with parameter "${fullReason}"?\n\nThis will remove them from active inventory and archive them into deleted records.`;
     if (!window.confirm(confirmMsg)) return;
@@ -218,11 +223,94 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Step 1: Input Area */}
+            {/* Step 1: Select Removal Parameter (Always visible) */}
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                1. Select Removal Parameter
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* RTS Option */}
+                <div
+                  onClick={() => setSelectedAction('RTS')}
+                  className={`cursor-pointer rounded-2xl p-4 border transition-all ${
+                    selectedAction === 'RTS'
+                      ? 'border-amber-500 bg-amber-50/70 shadow-sm ring-2 ring-amber-400/30'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${selectedAction === 'RTS' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                        <RotateCcw size={16} />
+                      </div>
+                      <div>
+                        <span className="font-bold text-sm text-slate-900 block">RTS (Return to Supplier)</span>
+                        <span className="text-[10px] text-amber-700 font-medium">Shows in RTS (72h) tile</span>
+                      </div>
+                    </div>
+                    <input
+                      type="radio"
+                      name="removalAction"
+                      checked={selectedAction === 'RTS'}
+                      onChange={() => setSelectedAction('RTS')}
+                      className="text-amber-500 focus:ring-amber-400"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed mt-2">
+                    Removes units from active stock with parameter <span className="font-mono font-bold text-amber-900">RTS</span>. Recorded in removal archives and counts towards the RTS (Last 72h) metric.
+                  </p>
+                </div>
+
+                {/* FBA Option */}
+                <div
+                  onClick={() => setSelectedAction('FBA')}
+                  className={`cursor-pointer rounded-2xl p-4 border transition-all ${
+                    selectedAction === 'FBA'
+                      ? 'border-indigo-500 bg-indigo-50/70 shadow-sm ring-2 ring-indigo-400/30'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${selectedAction === 'FBA' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                        <Truck size={16} />
+                      </div>
+                      <div>
+                        <span className="font-bold text-sm text-slate-900 block">FBA (Amazon Fulfilment)</span>
+                        <span className="text-[10px] text-indigo-700 font-medium">Amazon Stock Transfer</span>
+                      </div>
+                    </div>
+                    <input
+                      type="radio"
+                      name="removalAction"
+                      checked={selectedAction === 'FBA'}
+                      onChange={() => setSelectedAction('FBA')}
+                      className="text-indigo-600 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed mt-2">
+                    Removes units from active stock with parameter <span className="font-mono font-bold text-indigo-900">FBA</span>. Recorded as an Amazon fulfilment transfer in the removal log.
+                  </p>
+                </div>
+              </div>
+
+              {/* Optional Reference Note */}
+              <div className="pt-1">
+                <input
+                  type="text"
+                  value={customNote}
+                  onChange={e => setCustomNote(e.target.value)}
+                  placeholder="Optional reference / RMA # / shipment ID (e.g. RMA-9872 or FBA-UK-BATCH-4)..."
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Step 2: Input Area */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                  1. Paste IMEIs
+                  2. Paste IMEIs
                   {parsedImeis.length > 0 && (
                     <span className="text-[10px] font-mono font-medium text-slate-500 lowercase">
                       ({parsedImeis.length} unique parsed)
@@ -291,12 +379,12 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
               </div>
             )}
 
-            {/* Step 2: Matched Units Table */}
+            {/* Step 3: Matched Units Table */}
             {matchedUnits.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    2. Review Selected Units ({selectedIds.size} of {matchedUnits.length} selected)
+                    3. Review Units to Delete ({selectedIds.size} of {matchedUnits.length} selected)
                   </label>
                   <button
                     onClick={handleToggleAll}
@@ -328,7 +416,7 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {matchedUnits.map((u, i) => {
+                      {matchedUnits.map(u => {
                         const isSelected = selectedIds.has(u.id);
                         return (
                           <tr
@@ -370,83 +458,6 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
               </div>
             )}
 
-            {/* Step 3: Action Parameter Selection (RTS / FBA) */}
-            {matchedUnits.length > 0 && (
-              <div className="space-y-3">
-                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                  3. Select Removal Parameter
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* RTS Option */}
-                  <div
-                    onClick={() => setSelectedAction('RTS')}
-                    className={`cursor-pointer rounded-2xl p-4 border transition-all ${
-                      selectedAction === 'RTS'
-                        ? 'border-amber-400 bg-amber-50/60 shadow-sm ring-2 ring-amber-400/20'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-7 h-7 rounded-xl flex items-center justify-center ${selectedAction === 'RTS' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                          <RotateCcw size={14} />
-                        </div>
-                        <span className="font-bold text-sm text-slate-900">RTS (Return to Supplier)</span>
-                      </div>
-                      <input
-                        type="radio"
-                        checked={selectedAction === 'RTS'}
-                        onChange={() => setSelectedAction('RTS')}
-                        className="text-amber-500 focus:ring-amber-400"
-                      />
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Removes units from active inventory with reason <span className="font-mono font-bold text-amber-900">RTS</span>. Appears in RTS (Last 72h) tile and reports.
-                    </p>
-                  </div>
-
-                  {/* FBA Option */}
-                  <div
-                    onClick={() => setSelectedAction('FBA')}
-                    className={`cursor-pointer rounded-2xl p-4 border transition-all ${
-                      selectedAction === 'FBA'
-                        ? 'border-indigo-400 bg-indigo-50/60 shadow-sm ring-2 ring-indigo-400/20'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-7 h-7 rounded-xl flex items-center justify-center ${selectedAction === 'FBA' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                          <Truck size={14} />
-                        </div>
-                        <span className="font-bold text-sm text-slate-900">FBA (Amazon Fulfilment)</span>
-                      </div>
-                      <input
-                        type="radio"
-                        checked={selectedAction === 'FBA'}
-                        onChange={() => setSelectedAction('FBA')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Removes units from active inventory with reason <span className="font-mono font-bold text-indigo-900">FBA</span>. Recorded as Amazon stock transfer.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Optional Note */}
-                <div className="pt-1">
-                  <input
-                    type="text"
-                    value={customNote}
-                    onChange={e => setCustomNote(e.target.value)}
-                    placeholder="Optional note / RMA / shipment reference (e.g. RMA-9872 or FBA-UK-BATCH-4)..."
-                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  />
-                </div>
-              </div>
-            )}
-
             {/* Results Feedback */}
             {result && (
               <div className={`p-4 rounded-2xl border ${result.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'}`}>
@@ -470,19 +481,19 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
           </div>
         )}
 
-        {/* Footer */}
+        {/* Footer with both RTS and FBA delete buttons */}
         {userIsAdmin && (
-          <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50 flex-shrink-0">
+          <div className="px-6 py-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 flex-shrink-0">
             <div className="text-xs text-slate-500">
               {matchedUnits.length > 0 ? (
                 <span>
-                  <strong className="text-slate-900">{unitsToProcess.length}</strong> unit{unitsToProcess.length === 1 ? '' : 's'} selected for removal
+                  <strong className="text-slate-900">{unitsToProcess.length}</strong> of {matchedUnits.length} unit{matchedUnits.length === 1 ? '' : 's'} selected
                 </span>
               ) : (
-                <span>Enter IMEIs above to begin</span>
+                <span>Select parameter & paste IMEIs to begin</span>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={onClose}
@@ -491,26 +502,55 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
               >
                 {result?.ok ? 'Close' : 'Cancel'}
               </button>
+
+              {/* RTS Delete Button */}
               <button
                 type="button"
-                onClick={handleExecuteDelete}
+                onClick={() => handleExecuteDelete('RTS')}
                 disabled={unitsToProcess.length === 0 || isProcessing}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-sm ${
+                title="Delete selected units with parameter RTS"
+                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
                   unitsToProcess.length === 0 || isProcessing
-                    ? 'bg-slate-300 cursor-not-allowed text-slate-500'
+                    ? 'bg-slate-200 cursor-not-allowed text-slate-400'
                     : selectedAction === 'RTS'
-                    ? 'bg-amber-600 hover:bg-amber-700 active:scale-95'
-                    : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-400/40 active:scale-95'
+                    : 'bg-amber-100 hover:bg-amber-200 text-amber-900 active:scale-95'
                 }`}
               >
-                {isProcessing ? (
+                {isProcessing && selectedAction === 'RTS' ? (
                   <>
-                    <Loader2 size={14} className="animate-spin" /> Deleting...
+                    <Loader2 size={13} className="animate-spin" /> Deleting...
                   </>
                 ) : (
                   <>
-                    <Trash2 size={14} />
-                    Delete {unitsToProcess.length} Units as {selectedAction}
+                    <RotateCcw size={13} />
+                    Delete {unitsToProcess.length} as RTS
+                  </>
+                )}
+              </button>
+
+              {/* FBA Delete Button */}
+              <button
+                type="button"
+                onClick={() => handleExecuteDelete('FBA')}
+                disabled={unitsToProcess.length === 0 || isProcessing}
+                title="Delete selected units with parameter FBA"
+                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                  unitsToProcess.length === 0 || isProcessing
+                    ? 'bg-slate-200 cursor-not-allowed text-slate-400'
+                    : selectedAction === 'FBA'
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-400/40 active:scale-95'
+                    : 'bg-indigo-100 hover:bg-indigo-200 text-indigo-900 active:scale-95'
+                }`}
+              >
+                {isProcessing && selectedAction === 'FBA' ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" /> Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Truck size={13} />
+                    Delete {unitsToProcess.length} as FBA
                   </>
                 )}
               </button>
