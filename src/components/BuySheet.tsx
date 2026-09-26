@@ -19,7 +19,7 @@ import {
   Search, Plus, ChevronDown, ChevronUp, ChevronsUpDown,
   Filter, X, Trash2, Info, Sparkles, Eye,
   PackageX, TrendingDown, AlertTriangle,
-  FileSpreadsheet, ScanLine,
+  FileSpreadsheet, ScanLine, Layers,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import ExcelJS from 'exceljs';
@@ -36,6 +36,7 @@ import { formatDeletionDate } from '../lib/deletedUnitLookup';
 import IntelligencePanel from './IntelligencePanel';
 import AddStockManualModal from './AddStockManualModal';
 import BulkOrderModal from './BulkOrderModal';
+import BulkEditUnitsModal from './BulkEditUnitsModal';
 import ResetDataModal from './ResetDataModal';
 import ScopedWipeModal from './ScopedWipeModal';
 import type { WipeScopeId } from '../lib/wipeScopes';
@@ -234,6 +235,7 @@ export default function BuySheet(_props: Props) {
   // Modals
   const [addStockMode, setAddStockMode] = useState<'office' | 'shs' | null>(null);
   const [bulkOrderOpen, setBulkOrderOpen] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [showSchemaHelp, setShowSchemaHelp] = useState(false);
   const [showResetData, setShowResetData] = useState(false);
   // Scoped wipes — office shelf and SHS book are cleared independently
@@ -706,6 +708,15 @@ export default function BuySheet(_props: Props) {
           >
             <ScanLine size={12} /> Bulk Order
           </button>
+          {userIsAdmin && (
+            <button
+              onClick={() => setBulkEditOpen(true)}
+              title="Bulk select units by IMEI to delete with RTS or FBA parameter"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700 transition-all"
+            >
+              <Layers size={12} /> Bulk Edit Units
+            </button>
+          )}
           <button
             onClick={() => setShowSchemaHelp(s => !s)}
             title="Show required fields"
@@ -1028,6 +1039,7 @@ export default function BuySheet(_props: Props) {
         {wipeScope     && <ScopedWipeModal scope={wipeScope} onClose={() => setWipeScope(null)} />}
         {addStockMode  && <AddStockManualModal initialMode={addStockMode} onClose={() => setAddStockMode(null)} />}
         {bulkOrderOpen && <BulkOrderModal onClose={() => setBulkOrderOpen(false)} />}
+        {bulkEditOpen  && <BulkEditUnitsModal onClose={() => setBulkEditOpen(false)} />}
         {showAccessoryPanel && (
           <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <motion.div

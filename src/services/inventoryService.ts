@@ -1088,6 +1088,98 @@ export async function deleteOfficeUnit(
   }
 }
 
+export interface BulkDeleteUnitsResult {
+  ok: boolean;
+  total: number;
+  deleted: number;
+  failed: { imei: string; error: string }[];
+}
+
+/**
+ * Bulk delete units by admin with a specific reason/parameter (e.g. RTS or FBA).
+ * Each unit is archived fail-closed before hard-deletion, logged to audit events,
+ * and recorded on the team notice board.
+ */
+export async function bulkDeleteUnits(
+  units: InventoryUnit[],
+  reason: 'RTS' | 'FBA' | string,
+): Promise<BulkDeleteUnitsResult> {
+  if (!isAdmin(auth.currentUser)) {
+    return {
+      ok: false,
+      total: units.length,
+      deleted: 0,
+      failed: units.map(u => ({ imei: u.imei || u.id, error: 'Admin access required.' })),
+    };
+  }
+
+  let deleted = 0;
+  const failed: { imei: string; error: string }[] = [];
+
+  for (const unit of units) {
+    if (unit.status === 'sold') {
+      failed.push({ imei: unit.imei || unit.id, error: 'Cannot delete sold unit.' });
+      continue;
+    }
+    const source: 'office' | 'shs_unit' = unit.status === 'incoming' ? 'shs_unit' : 'office';
+    const archived = await archiveDeletedUnit({ unit, reason, source });
+    if (!archived.ok) {
+      failed.push({ imei: unit.imei || unit.id, error: archived.message || 'Archive failed.' });
+      continue;
+    }
+
+    try {
+      await dbService.delete('inventoryUnits', unit.id);
+
+      const now = new Date().toISOString();
+      const adminEmail = auth.currentUser?.email || 'admin';
+      const parts = [
+        `${source === 'shs_unit' ? 'SHS' : 'Office'} stock deleted`,
+        unit.model,
+        unit.colour,
+        unit.storage,
+        unit.imei ? `IMEI ${unit.imei}` : undefined,
+        unit.supplierName ? `supplier: ${unit.supplierName}` : undefined,
+        `— ${reason}`,
+        `(by ${adminEmail} · ${now.slice(0, 10)})`,
+      ].filter(Boolean);
+
+      const noticeId = `notice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const notice: Omit<Notice, 'id'> & { id: string } = {
+        id: noticeId,
+        content: parts.join(' · '),
+        createdAt: now,
+        createdBy: adminEmail,
+        ownerId: 'shared',
+        kind: 'log',
+        ...(archived.id ? { logRef: archived.id } : {}),
+      };
+
+      await Promise.all([
+        dbService.create('notices', noticeId, notice),
+        logInventoryEvent({
+          type: 'stock_adjusted',
+          message: `${source === 'shs_unit' ? 'SHS' : 'Office'} unit deleted · ${unit.model}${unit.storage ? ' ' + unit.storage : ''}${unit.colour ? ' · ' + unit.colour : ''} · supplier: ${unit.supplierName} — ${reason}`,
+          unitId: unit.id,
+          buyPrice: unit.buyPrice,
+        }),
+      ]);
+
+      deleted++;
+    } catch (err: any) {
+      if (archived.id) await voidArchiveRecord(archived.id, err?.message || 'unit delete failed');
+      failed.push({ imei: unit.imei || unit.id, error: err?.message || 'Delete failed.' });
+    }
+  }
+
+  return {
+    ok: failed.length === 0,
+    total: units.length,
+    deleted,
+    failed,
+  };
+}
+
 
 /**
  * Clear the SHS trail behind a unit that has been fulfilled.
