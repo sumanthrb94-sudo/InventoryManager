@@ -41,7 +41,13 @@ export default function StockIntakeFlow({ onClose }: Props) {
   const rtsItems = useMemo(() => {
     const cutoffMs = nowMs - 72 * 60 * 60 * 1000;
     return deletedUnits
-      .filter(d => !d.voided && d.source === 'office' && new Date(d.deletedAt).getTime() >= cutoffMs)
+      .filter(d => {
+        if (d.voided || d.source !== 'office') return false;
+        if (new Date(d.deletedAt).getTime() < cutoffMs) return false;
+        const r = (d.reason || '').toLowerCase();
+        if (r.includes('fba') || r.includes('amazon')) return false;
+        return r.includes('rts') || r.includes('return to supplier');
+      })
       .sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
   }, [deletedUnits, nowMs]);
 
@@ -469,7 +475,7 @@ export default function StockIntakeFlow({ onClose }: Props) {
                               <p className="text-xs font-bold truncate">{item.model}</p>
                               <p className="text-[9px] text-slate-500 font-mono">
                                 {item.imei ? `${item.imei.slice(0, 10)}…` : 'No IMEI'} · £{item.buyPrice} BP
-                                {item.supplierName ? ` · {item.supplierName}` : ''}
+                                {item.supplierName ? ` · ${item.supplierName}` : ''}
                               </p>
                             </div>
                           </div>

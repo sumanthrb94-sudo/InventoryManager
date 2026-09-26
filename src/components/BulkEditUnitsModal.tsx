@@ -14,7 +14,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   X, Trash2, CheckCircle2, AlertTriangle, AlertCircle,
-  Copy, Check, Layers, RotateCcw, Truck, Loader2, Sparkles,
+  Copy, Check, Layers, RotateCcw, Box, Loader2, Sparkles,
 } from 'lucide-react';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { auth, isAdmin } from '../lib/firebase';
@@ -273,7 +273,7 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${selectedAction === 'FBA' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                        <Truck size={16} />
+                        <Box size={16} />
                       </div>
                       <div>
                         <span className="font-bold text-sm text-slate-900 block">FBA (Amazon Fulfilment)</span>
@@ -481,9 +481,9 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
           </div>
         )}
 
-        {/* Footer with both RTS and FBA delete buttons */}
+        {/* Footer */}
         {userIsAdmin && (
-          <div className="px-6 py-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 flex-shrink-0">
+          <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50 flex-shrink-0">
             <div className="text-xs text-slate-500">
               {matchedUnits.length > 0 ? (
                 <span>
@@ -493,7 +493,7 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
                 <span>Select parameter & paste IMEIs to begin</span>
               )}
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onClose}
@@ -503,53 +503,32 @@ export default function BulkEditUnitsModal({ onClose }: Props) {
                 {result?.ok ? 'Close' : 'Cancel'}
               </button>
 
-              {/* RTS Delete Button */}
+              {/* Action Delete Button (strictly matches selectedAction) */}
               <button
                 type="button"
-                onClick={() => handleExecuteDelete('RTS')}
+                onClick={() => handleExecuteDelete(selectedAction)}
                 disabled={unitsToProcess.length === 0 || isProcessing}
-                title="Delete selected units with parameter RTS"
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                title={`Delete selected units with parameter ${selectedAction}`}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-sm ${
                   unitsToProcess.length === 0 || isProcessing
-                    ? 'bg-slate-200 cursor-not-allowed text-slate-400'
+                    ? 'bg-slate-300 cursor-not-allowed text-slate-500'
                     : selectedAction === 'RTS'
-                    ? 'bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-400/40 active:scale-95'
-                    : 'bg-amber-100 hover:bg-amber-200 text-amber-900 active:scale-95'
+                    ? 'bg-amber-600 hover:bg-amber-700 active:scale-95'
+                    : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'
                 }`}
               >
-                {isProcessing && selectedAction === 'RTS' ? (
+                {isProcessing ? (
                   <>
                     <Loader2 size={13} className="animate-spin" /> Deleting...
                   </>
-                ) : (
+                ) : selectedAction === 'RTS' ? (
                   <>
-                    <RotateCcw size={13} />
+                    <RotateCcw size={14} />
                     Delete {unitsToProcess.length} as RTS
                   </>
-                )}
-              </button>
-
-              {/* FBA Delete Button */}
-              <button
-                type="button"
-                onClick={() => handleExecuteDelete('FBA')}
-                disabled={unitsToProcess.length === 0 || isProcessing}
-                title="Delete selected units with parameter FBA"
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
-                  unitsToProcess.length === 0 || isProcessing
-                    ? 'bg-slate-200 cursor-not-allowed text-slate-400'
-                    : selectedAction === 'FBA'
-                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-400/40 active:scale-95'
-                    : 'bg-indigo-100 hover:bg-indigo-200 text-indigo-900 active:scale-95'
-                }`}
-              >
-                {isProcessing && selectedAction === 'FBA' ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin" /> Deleting...
-                  </>
                 ) : (
                   <>
-                    <Truck size={13} />
+                    <Box size={14} />
                     Delete {unitsToProcess.length} as FBA
                   </>
                 )}
