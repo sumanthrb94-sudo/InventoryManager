@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Minus, Plus, Truck, AlertTriangle, Clock, RotateCcw } from 'lucide-react';
+import { X, Minus, Plus, Truck, AlertTriangle, Clock, RotateCcw, ShoppingBag, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InventoryUnit, DeletedUnitRecord } from '../../types';
 import { dbService } from '../../lib/dbService';
@@ -28,7 +28,7 @@ interface Props {
 }
 
 export default function StockIntakeFlow({ onClose }: Props) {
-  const { suppliers, deletedUnits, requestCollection } = useInventoryStore();
+  const { suppliers, deletedUnits, units, requestCollection } = useInventoryStore();
   useLazyCollection('deletedUnits');
 
   // RTS items: deleted units from last 72 hours with source 'office'
@@ -44,6 +44,14 @@ export default function StockIntakeFlow({ onClose }: Props) {
       .filter(d => !d.voided && d.source === 'office' && new Date(d.deletedAt).getTime() >= cutoffMs)
       .sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
   }, [deletedUnits, nowMs]);
+
+  // Sold in last 72 hours (rolling window)
+  const soldLast72h = useMemo(() => {
+    const cutoffMs = nowMs - 72 * 60 * 60 * 1000;
+    return units
+      .filter(u => u.status === 'sold' && u.saleDate && new Date(u.saleDate).getTime() >= cutoffMs)
+      .sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || ''));
+  }, [units, nowMs]);
 
   // Stage management
   const [stage, setStage] = useState<Stage>('type-selection');
@@ -481,7 +489,11 @@ export default function StockIntakeFlow({ onClose }: Props) {
                     </div>
                   </div>
                 )}
-                <IntakeTypeSelector onSelect={handleTypeSelection} />
+                <IntakeTypeSelector
+                  onSelect={handleTypeSelection}
+                  rtsCount={rtsItems.length}
+                  soldLast72hCount={soldLast72h.length}
+                />
               </motion.div>
             )}
 

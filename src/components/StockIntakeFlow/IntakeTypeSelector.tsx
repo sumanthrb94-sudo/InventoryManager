@@ -1,14 +1,64 @@
 import React from 'react';
-import { Package, PackagePlus } from 'lucide-react';
+import { Package, PackagePlus, Truck, ShoppingBag, Clock, TrendingUp } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface Props {
   onSelect: (type: 'single' | 'bulk') => void;
+  rtsCount?: number;
+  soldLast72hCount?: number;
 }
 
-export default function IntakeTypeSelector({ onSelect }: Props) {
+export default function IntakeTypeSelector({ onSelect, rtsCount = 0, soldLast72hCount = 0 }: Props) {
   return (
     <div className="space-y-4">
+      {/* Info tiles row */}
+      {(rtsCount > 0 || soldLast72hCount > 0) && (
+        <div className="grid grid-cols-2 gap-3">
+          {rtsCount > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-3 sm:p-4 rounded-xl border-2 border-amber-200 bg-amber-50 hover:border-amber-300 transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <Truck size={16} className="text-amber-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-amber-800 truncate">RTS (Last 72h)</p>
+                  <p className="text-[9px] text-amber-600 font-mono">{rtsCount} unit{rtsCount === 1 ? '' : 's'} returned to supplier</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 text-[8px] font-mono text-amber-600">
+                <Clock size={10} />
+                <span>72h timer</span>
+              </div>
+            </motion.div>
+          )}
+          {soldLast72hCount > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-3 sm:p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:border-emerald-300 transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                  <ShoppingBag size={16} className="text-emerald-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-emerald-800 truncate">Sold (Last 72h)</p>
+                  <p className="text-[9px] text-emerald-600 font-mono">{soldLast72hCount} unit{soldLast72hCount === 1 ? '' : 's'} sold</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 text-[8px] font-mono text-emerald-600">
+                <TrendingUp size={10} />
+                <span>Rolling window</span>
+              </div>
+            </motion.div>
+          )}
+        </div>
+      )}
+
       <p className="text-sm text-gray-600">Choose how you want to add stock:</p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
