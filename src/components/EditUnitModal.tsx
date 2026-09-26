@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { X, CheckCircle2, Edit3, Trash2, Lock } from 'lucide-react';
+import { X, CheckCircle2, Edit3, Trash2, Lock, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { InventoryUnit, DeviceCategory, DeviceStatus } from '../types';
 import { useInventoryStore } from '../lib/inventoryStore';
 import { GradeSelect, StorageSelect, SimTypeSelect } from './FormSelects';
 import { adminUpdateUnit, deleteOfficeUnit } from '../services';
+import QcFailModal from './QcFailModal';
 
 interface Props {
   unit: InventoryUnit;
@@ -67,6 +68,9 @@ export default function EditUnitModal({ unit, onClose }: Props) {
 
   const [deleting, setDeleting] = useState(false);
 
+  // QC Fail modal state
+  const [showQcFail, setShowQcFail] = useState(false);
+
   // A SOLD UNIT IS READ-ONLY HERE. Operator, 2026-09-09: "admin cannot edit a
   // sold record or delete it." Its IMEI, model, buy price and dates are the
   // facts its sale, GP and VAT were computed from; changing them here would
@@ -76,32 +80,12 @@ export default function EditUnitModal({ unit, onClose }: Props) {
   // enforces this as well; the modal just says so before the operator types.
   const locked = unit.status === 'sold';
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (unit.status === 'sold') {
       alert('Cannot delete a sold unit. Void the sale first.');
       return;
     }
-    const reason = window.prompt('Enter reason for deleting this unit:');
-    if (reason === null) return; // cancelled
-    if (!reason.trim()) {
-      alert('A reason is required to delete the unit.');
-      return;
-    }
-
-    setDeleting(true);
-    setError('');
-    try {
-      const res = await deleteOfficeUnit(unit, reason.trim());
-      if (res.ok) {
-        onClose();
-      } else {
-        setError(res.message || 'Failed to delete unit');
-        setDeleting(false);
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Delete failed');
-      setDeleting(false);
-    }
+    setShowQcFail(true);
   };
 
   const handleSave = async () => {
@@ -375,6 +359,14 @@ export default function EditUnitModal({ unit, onClose }: Props) {
           </button>
         </div>
       </motion.div>
+
+      {showQcFail && (
+        <QcFailModal
+          unit={unit}
+          onClose={() => setShowQcFail(false)}
+          onSuccess={onClose}
+        />
+      )}
     </motion.div>
   );
 }

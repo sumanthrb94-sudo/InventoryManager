@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
-import { X, Minus, Plus } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { X, Minus, Plus, Truck, AlertTriangle, Clock, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { InventoryUnit } from '../../types';
+import { InventoryUnit, DeletedUnitRecord } from '../../types';
 import { dbService } from '../../lib/dbService';
-import { useInventoryStore } from '../../lib/inventoryStore';
+import { useInventoryStore, useLazyCollection } from '../../lib/inventoryStore';
 import { generateBatchId } from '../../lib/batchUtils';
+import { localDay } from '../../lib/firestoreTime';
 import type { OCRResult } from '../../lib/ocr/ocrEngine';
 import IntakeTypeSelector from './IntakeTypeSelector';
 import ImageCaptureInput from './ImageCaptureInput';
@@ -27,7 +28,22 @@ interface Props {
 }
 
 export default function StockIntakeFlow({ onClose }: Props) {
-  const { suppliers } = useInventoryStore();
+  const { suppliers, deletedUnits, requestCollection } = useInventoryStore();
+  useLazyCollection('deletedUnits');
+
+  // RTS items: deleted units from last 72 hours with source 'office'
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 5 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const rtsItems = useMemo(() => {
+    const cutoffMs = nowMs - 72 * 60 * 60 * 1000;
+    return deletedUnits
+      .filter(d => !d.voided && d.source === 'office' && new Date(d.deletedAt).getTime() >= cutoffMs)
+      .sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
+  }, [deletedUnits, nowMs]);
 
   // Stage management
   const [stage, setStage] = useState<Stage>('type-selection');
@@ -418,6 +434,53 @@ export default function StockIntakeFlow({ onClose }: Props) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
               >
+                {/* RTS Items from last 72 hours */}
+                {rtsItems.length > 0 && (
+                  <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center">
+                          <Truck size={16} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-amber-800">RTS Items (Last 72 Hours)</p>
+                          <p className="text-[9px] text-amber-600 font-mono">{rtsItems.length} unit{rtsItems.length === 1 ? '' : 's'} returned to supplier</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[9px] font-mono text-amber-600">
+                        <Clock size={11} />
+                        <span>72h timer</span>
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto space-y-2">
+                      {rtsItems.slice(0, 10).map(item => (
+                        <div key={item.id} className="flex items-center justify-between p-3 bg-white border border-amber-100 rounded-xl">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0 animate-pulse" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold truncate">{item.model}</p>
+                              <p className="text-[9px] text-slate-500 font-mono">
+                                {item.imei ? `${item.imei.slice(0, 10)}…` : 'No IMEI'} · £{item.buyPrice} BP
+                                {item.supplierName ? ` · {item.supplierName}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-right">
+                            <span className="text-[8px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full uppercase tracking-widest">
+                              RTS
+                            </span>
+                            <span className="text-[8px] text-slate-400 font-mono">
+                              {localDay(item.deletedAt)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      {rtsItems.length > 10 && (
+                        <p className="text-[9px] text-amber-600 font-mono text-center py-2">+{rtsItems.length - 10} more RTS items</p>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <IntakeTypeSelector onSelect={handleTypeSelection} />
               </motion.div>
             )}

@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Search, ChevronDown, ChevronUp, ChevronsUpDown, X,
-  AlertCircle, Truck, ChevronRight, Layers, List, Sparkles,
+  AlertCircle, AlertTriangle, Truck, ChevronRight, Layers, List, Sparkles,
   Trash2,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -30,6 +30,7 @@ import { useIsAdmin } from '../lib/useIsAdmin';
 import { deleteShsUnit, deleteShsAggregate } from '../services/shsService';
 import type { DeleteShsResult } from '../services/shsService';
 import { deleteOfficeUnit, adminUpdateUnit } from '../services/inventoryService';
+import QcFailModal from './QcFailModal';
 
 // ── Detail-view sort types (used by the 10-column table headers) ────────────
 export type SortKey = 'dateIn' | 'model' | 'storage' | 'colour' | 'buyPrice' | 'supplier' | 'grade';
@@ -65,42 +66,6 @@ function ShsDeleteButton({ onDelete, title }: { onDelete: () => Promise<DeleteSh
       onClick={handleClick}
       disabled={busy}
       title={title || 'Delete SHS stock'}
-      className="p-1 rounded-md text-rose-400 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-40"
-    >
-      <Trash2 size={14} />
-    </button>
-  );
-}
-
-function OfficeDeleteButton({ unit }: { unit: InventoryUnit }) {
-  const [busy, setBusy] = useState(false);
-  const handleClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (unit.status === 'sold') {
-      alert('Cannot delete a sold unit. Void the sale first.');
-      return;
-    }
-    const reason = window.prompt(`Delete office unit ${unit.model}? Enter reason:`);
-    if (reason === null) return; // cancelled
-    if (!reason.trim()) {
-      alert('A reason is required to delete the unit.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const res = await deleteOfficeUnit(unit, reason.trim());
-      if (!res.ok) alert(res.message || 'Delete failed');
-    } catch (err: any) {
-      alert(err?.message || 'Delete failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <button
-      onClick={handleClick}
-      disabled={busy}
-      title="Delete office unit"
       className="p-1 rounded-md text-rose-400 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-40"
     >
       <Trash2 size={14} />
@@ -933,13 +898,13 @@ export default function StockOverlayModal({
    */
   const [groupedSort, setGroupedSort] = useState<GroupSort>(DEFAULT_GROUP_SORT);
 
-  /** Drop aggregate rollups whose model is already represented by an IMEI
-   *  row in `rows`. The KPI tile uses Math.max(rollupQty, imeiCount) — i.e.
-   *  the two collections describe the SAME stock at different granularities.
-   *  Without this filter the overlay double-counted (50 IMEIs + 50-qty
-   *  rollup = a misleading "100 units"). Match is case-insensitive on
-   *  model, since SHS aggregates and IMEI units come from different import
-   *  paths and may differ in casing. */
+/** Drop aggregate rollups whose model is already represented by an IMEI
+ *  row in `rows`. The KPI tile uses Math.max(rollupQty, imeiCount) — i.e.
+ *  the two collections describe the SAME stock at different granularities.
+ *  Without this filter the overlay double-counted (50 IMEIs + 50-qty
+ *  rollup = a misleading "100 units"). Match is case-insensitive on
+ *  model, since SHS aggregates and IMEI units come from different import
+ *  paths and may differ in casing. */
   const modelsWithImei = useMemo(
     () => new Set(rows.map(r => (r.model || '').trim().toLowerCase()).filter(Boolean)),
     [rows],
@@ -951,6 +916,9 @@ export default function StockOverlayModal({
     }),
     [aggregates, modelsWithImei],
   );
+
+  // QC Fail modal state
+  const [qcFailUnit, setQcFailUnit] = useState<InventoryUnit | null>(null);
 
   /** Apply the overlay's free-text search to the unit + aggregate sets.
    *  Empty query passes everything through. Match is case-insensitive
@@ -1266,7 +1234,13 @@ export default function StockOverlayModal({
                                   )}
                                   {u.status !== 'incoming' && u.status !== 'sold' && userIsAdmin && (
                                     <span className="ml-auto">
-                                      <OfficeDeleteButton unit={u} />
+                                      <button
+                                        onClick={() => setQcFailUnit(u)}
+                                        title="QC Fail: mark as FBA or RTS"
+                                        className="p-1 rounded-md text-amber-500 hover:text-amber-700 hover:bg-amber-50 transition-colors"
+                                      >
+                                        <AlertTriangle size={14} />
+                                      </button>
                                     </span>
                                   )}
                                 </span>
@@ -1363,6 +1337,14 @@ export default function StockOverlayModal({
           >Close</button>
         </div>
       </motion.div>
+
+      {qcFailUnit && (
+        <QcFailModal
+          unit={qcFailUnit}
+          onClose={() => setQcFailUnit(null)}
+          onSuccess={() => setQcFailUnit(null)}
+        />
+      )}
     </motion.div>
   );
 }

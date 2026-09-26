@@ -125,6 +125,10 @@ export default function Dashboard({ user, onNavigate, onOpenMasterData }: Props)
   const todayArrivals = units.filter(u => u.dateIn === today);
   const todaySold    = sold.filter(u => (u.saleDate || u.dateIn) === today);
 
+  // Sold in last 72 hours (rolling window)
+  const cutoff72h = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const soldLast72h = sold.filter(u => u.saleDate && u.saleDate >= cutoff72h);
+
   // Accessory sales (no imei/unitId — sku-based) never show up in `sold`
   // (they aren't InventoryUnits), so panels built only from `sold` silently
   // dropped every accessory sale. Normalise both into one shape for the
@@ -563,40 +567,6 @@ export default function Dashboard({ user, onNavigate, onOpenMasterData }: Props)
         </section>
       )}
 
-      {/* Accessories — quantity-pool stock (chargers, SIM pins, cables).
-          Kept as its own indicator rather than folded into "Stock on Hand"
-          above, since accessories are a separate SKU-quantity model, not
-          InventoryUnit records. */}
-      {accessoryStock.length > 0 && (
-        <section aria-label="Accessory stock" className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <MasterKpiCard
-            icon={<Boxes size={15} />}
-            label="Accessory SKUs"
-            value={accessoryKpi.skuCount.toLocaleString()}
-            sub={`£${accessoryKpi.value.toLocaleString()} in pooled stock`}
-            accent="bg-indigo-50 border-indigo-100 text-indigo-900"
-            iconBg="bg-indigo-100 text-indigo-700"
-          />
-          <MasterKpiCard
-            icon={<Boxes size={15} />}
-            label="Accessories Sold Out"
-            value={accessoryKpi.soldOut.toLocaleString()}
-            sub="Pools at 0 units"
-            accent={accessoryKpi.soldOut > 0 ? 'bg-rose-50 border-rose-100 text-rose-900' : 'bg-gray-50 border-gray-100 text-gray-900'}
-            iconBg={accessoryKpi.soldOut > 0 ? 'bg-rose-100 text-rose-700' : 'bg-gray-200 text-gray-700'}
-          />
-          <MasterKpiCard
-            icon={<Boxes size={15} />}
-            label="Accessories Running Low"
-            value={accessoryKpi.lowStock.toLocaleString()}
-            sub="Pools at ≤ 3 units"
-            accent={accessoryKpi.lowStock > 0 ? 'bg-amber-50 border-amber-100 text-amber-900' : 'bg-gray-50 border-gray-100 text-gray-900'}
-            iconBg={accessoryKpi.lowStock > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-700'}
-          />
-        </section>
-      )}
-
-
       {/* Periodic Inventory Table — single panel with an Office/SHS toggle
           at the top-right. Switching the scope rewires all three view tabs
           (Stock / By Supplier / Out of Stock) to the selected segment. */}
@@ -634,6 +604,11 @@ export default function Dashboard({ user, onNavigate, onOpenMasterData }: Props)
           badge={incoming.length > 0 ? "Pending" : undefined}
           onClick={() => onNavigate({ tab:'inventory', filters:{ status:'incoming' } })}
           accent={incoming.length > 0 ? "bg-blue-50 border-blue-100 text-blue-900" : undefined}
+        />
+        <KPICard
+          label="Sold · Last 72h" value={soldLast72h.length}
+          sub={`${soldLast72h.reduce((s,u)=>s+(u.salePrice||0),0).toLocaleString()} revenue`} icon={<ShoppingBag size={16}/>}
+          onClick={() => onNavigate({ tab:'inventory', filters:{ status:'sold' } })}
         />
       </div>
 
