@@ -166,6 +166,63 @@ export function orphanSales({ units, sales }: HealthInput): HealthCheck {
 }
 
 /**
+ * A live sale whose phone is still counted as stock.
+ *
+ * The sales total and the stock count are kept by different writes: the
+ * sale row lands, and separately its unit is flipped to 'sold'. When the
+ * second half doesn't happen — a two-stage sale still waiting for its IMEI,
+ * an import that skipped the unit (e.g. it was sitting on 'returned'), a
+ * flip that failed mid-write — the sale counts and the phone ALSO counts.
+ * That is exactly the "500 − 85 sold should be 415, but office stock says
+ * 437" gap, and this check names each sale responsible.
+ *
+ * A unit returned on or after the sale date is a genuine Back-to-Inventory
+ * and is not flagged — same rule buildPostImportSyncPatches uses.
+ * IMEI-less sales with no unit are left alone (accessory sales look the
+ * same), and IMEIs matching nothing are orphanSales' job.
+ */
+export function soldStillInStock({ units, sales }: HealthInput): HealthCheck {
+  const byId = new Map(units.map(u => [u.id, u]));
+  const byImei = new Map<string, InventoryUnit>();
+  for (const u of units) {
+    const k = (u.imei || '').trim().toUpperCase();
+    if (k && !byImei.has(k)) byImei.set(k, u);
+  }
+  const issues: HealthIssue[] = [];
+  for (const s of sales) {
+    if (s.voidedAt) continue;
+    const label = `${s.marketplace} · ${s.orderNumber}`;
+    if (s.awaitingImei && !(s.imei || '').trim()) {
+      issues.push({
+        id: s.id,
+        label,
+        detail: `${s.model || s.sku || 'unit'} awaiting IMEI — no unit marked sold yet`,
+      });
+      continue;
+    }
+    const u = (s.unitId && byId.get(s.unitId))
+      || byImei.get((s.imei || '').trim().toUpperCase());
+    if (!u) continue;
+    const stillStock = isLive(u)
+      || (u.returnType === 'returned_to_inventory' && u.status !== 'sold');
+    if (!stillStock) continue;
+    if (u.returnDate && s.saleDate && u.returnDate >= s.saleDate) continue;
+    issues.push({
+      id: s.id,
+      label,
+      detail: `${unitLabel(u)} sold ${s.saleDate || '(no date)'} but still '${u.status}'`,
+    });
+  }
+  return {
+    key: 'sold-still-in-stock',
+    title: 'Sold but still counted as stock',
+    consequence: 'Office/SHS stock reads high by one for every row here.',
+    severity: 'high',
+    issues,
+  };
+}
+
+/**
  * SHS stock a supplier has held for a long time.
  *
  * Supplier-held stock is money committed to phones you cannot sell yet.
@@ -351,7 +408,7 @@ export function unrecognisedPlatform({ units }: HealthInput): HealthCheck {
 
 const CHECKS = [
   missingBuyPrice, missingSupplier, duplicateSuppliers, duplicateImeis,
-  orphanSales, unrecognisedPlatform, staleShs, skuLikeModels, lossMakingSales,
+  orphanSales, soldStillInStock, unrecognisedPlatform, staleShs, skuLikeModels, lossMakingSales,
   shsInventedImei,
 ];
 
