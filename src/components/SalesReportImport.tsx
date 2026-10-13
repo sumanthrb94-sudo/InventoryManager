@@ -18,12 +18,12 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   X, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2,
-  PlusCircle, RefreshCw, AlertCircle, ArrowUpRight,
+  PlusCircle, RefreshCw, AlertCircle,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { dbService } from '../lib/dbService';
 import { useInventoryStore } from '../lib/inventoryStore';
-import type { Sale, Marketplace, ReturnCategory } from '../types';
+import type { Sale, Marketplace, ReturnCategory, DeletedUnitRecord } from '../types';
 import { MARKETPLACES } from '../types';
 import { parseSalesWorkbook, type ParsedSales } from '../lib/salesImport';
 import { buildPostImportSyncPatches } from '../services/salesService';
@@ -36,6 +36,8 @@ import { findSupplierNearMiss, type SupplierNearMiss } from '../lib/supplierNear
 import type { ModelSeed } from '../lib/deviceCatalog';
 import { SIM_TYPE_OPTIONS } from '../lib/unitConstants';
 import { isValidImei, isAppleDevice } from '../lib/imeiValidation';
+import { lookupDeletedUnits } from '../lib/deletedUnitLookup';
+import { classifyStockGate, imeisToLookUp, type StockGateRow, type StockGateKind } from '../lib/importStockGate';
 import { auth, isAdmin } from '../lib/firebase';
 import DeviceComboBox from './DeviceComboBox';
 import { buildSupplierIndex, resolveSupplier } from '../lib/supplierIdentity';
@@ -1011,6 +1013,33 @@ export default function SalesReportImport({ onClose }: Props) {
   const [flipsAcked, setFlipsAcked] = useState(false);
   React.useEffect(() => { setFlipsAcked(false); }, [parsed]);
 
+  // Stock gate — sold IMEIs that were never sellable stock: returned to
+  // supplier (RTS), deleted from inventory, or never stocked in. Confirming
+  // creates each one as an already-sold unit, so office stock does NOT go
+  // down for it — the 12-Oct "85 sold but stock only fell 63" report. The
+  // deleted archive is a lazy collection, so ask it only about IMEIs that
+  // match no stock record (point queries, cached by deletedUnitLookup).
+  const gateSales = useMemo(
+    () => (preview ? [...preview.toCreate, ...preview.toUpdate] : []),
+    [preview],
+  );
+  const gateLookupKey = useMemo(() => imeisToLookUp(gateSales, units).join(','), [gateSales, units]);
+  const [deletedByImei, setDeletedByImei] = useState<Map<string, DeletedUnitRecord> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setDeletedByImei(null);
+    lookupDeletedUnits(gateLookupKey ? gateLookupKey.split(',') : [])
+      .then(found => { if (!cancelled) setDeletedByImei(found); });
+    return () => { cancelled = true; };
+  }, [gateLookupKey]);
+  const stockGate = useMemo(
+    () => (deletedByImei ? classifyStockGate(gateSales, units, deletedByImei) : []),
+    [gateSales, units, deletedByImei],
+  );
+  const stockGateChecking = !!preview && deletedByImei === null;
+  const [stockGateAcked, setStockGateAcked] = useState(false);
+  React.useEffect(() => { setStockGateAcked(false); }, [parsed]);
+
   // Seed audit-completion rows whenever the preview's recordsToComplete list
   // changes (parsed a different file, or live sales/units state shifted). Each
   // row starts pre-filled from the matched unit (or the sale, for orphans) and
@@ -1504,6 +1533,10 @@ export default function SalesReportImport({ onClose }: Props) {
               error={error}
               flipsAcked={flipsAcked}
               onAckChange={setFlipsAcked}
+              stockGate={stockGate}
+              stockGateChecking={stockGateChecking}
+              stockGateAcked={stockGateAcked}
+              onStockGateAck={setStockGateAcked}
               auditEdits={auditEdits}
               onAuditEdit={(saleId, patch) => {
                 setAuditEdits(prev => prev.map(o => o.saleId === saleId ? { ...o, ...patch } : o));
@@ -1692,9 +1725,15 @@ export default function SalesReportImport({ onClose }: Props) {
                   preview.toCreate.length + preview.toUpdate.length === 0
                   || (preview.inventoryFlips.length > 0 && !flipsAcked)
                   || auditBlockers > 0
+                  || stockGateChecking
+                  || (stockGate.length > 0 && !stockGateAcked)
                 }
                 title={
-                  auditBlockers > 0
+                  stockGateChecking
+                    ? 'Checking sold IMEIs against deleted and returned-to-supplier stock…'
+                  : stockGate.length > 0 && !stockGateAcked
+                    ? `${stockGate.length} sold IMEI${stockGate.length === 1 ? ' was' : 's were'} not in stock (RTS / deleted / never stocked in) — review and tick the acknowledgement first.`
+                  : auditBlockers > 0
                     ? `Complete ${auditBlockers} sold record${auditBlockers === 1 ? '' : 's'} (model / supplier / BP / IMEI) before confirming — required for the audit trail.`
                     : preview.inventoryFlips.length > 0 && !flipsAcked
                       ? `Tick the acknowledgement to confirm ${preview.inventoryFlips.length} in-stock unit${preview.inventoryFlips.length === 1 ? '' : 's'} will be flipped to sold.`
@@ -1849,6 +1888,7 @@ function UploadPhase({
 // ── Phase: preview ──────────────────────────────────────────────────────────
 function PreviewPhase({
   preview, fileName, error, flipsAcked, onAckChange,
+  stockGate, stockGateChecking, stockGateAcked, onStockGateAck,
   auditEdits, onAuditEdit, units, suppliers, isAdmin, knownRefs,
   justCreatedModels, onCreateModel, onCreateSupplier,
 }: {
@@ -1857,6 +1897,11 @@ function PreviewPhase({
   error: string;
   flipsAcked: boolean;
   onAckChange: (v: boolean) => void;
+  /** Sold IMEIs that were not sellable stock — see importStockGate.ts. */
+  stockGate: StockGateRow[];
+  stockGateChecking: boolean;
+  stockGateAcked: boolean;
+  onStockGateAck: (v: boolean) => void;
   auditEdits: AuditCompletionRow[];
   onAuditEdit: (saleId: string, patch: Partial<AuditCompletionRow>) => void;
   units: import('../types').InventoryUnit[];
@@ -2099,33 +2144,18 @@ function PreviewPhase({
         ))}
       </div>
 
-      {/* ── GAP FIX 3: Import Order Warning ────────────────────────────
-          When orphan IMEIs are detected (recordsToComplete contains
-          NEW rows with no matching inventory unit), show a prominent
-          warning suggesting the operator import the Inventory Report
-          first. This enforces the agreed workflow: inventory first,
-          sales last — reducing manual orphan resolution work. */}
-      {preview.recordsToComplete.filter(r => !r.existingUnitId).length > 0 && (
-        <div className="border-2 border-amber-300 bg-amber-50 rounded-2xl p-3 flex items-start gap-2.5">
-          <ArrowUpRight size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-bold text-amber-900">
-              {preview.recordsToComplete.filter(r => !r.existingUnitId).length} orphan IMEI{preview.recordsToComplete.filter(r => !r.existingUnitId).length === 1 ? '' : 's'} — import inventory first?
-            </p>
-            <p className="text-[11px] text-amber-800 mt-0.5">
-              These sold IMEIs have no matching inventory unit. If you haven't
-              yet imported today's Inventory Report, consider doing that first —
-              the units will auto-match, saving you from manually filling model /
-              supplier / BP for each orphan. The agreed workflow is:
-              <strong> Inventory Report → SHS Receive → Manual Stock → Sales Report</strong>.
-            </p>
-            <p className="text-[10px] font-mono text-amber-600 mt-1">
-              Or continue now — each orphan will be created from the sale data
-              after you fill in the missing fields below.
-            </p>
-          </div>
-        </div>
-      )}
+      {/* ── Stock gate: sold phones that were not in stock ──────────────
+          Replaces the old amber "orphan IMEI" hint, which was easy to click
+          past: on 12-Oct, 22 sold IMEIs went through it — 20 never stocked
+          in, 2 deleted as RTS days earlier — and office stock quietly fell
+          by 63 instead of 85. Each row now says WHY it was not in stock,
+          and Confirm stays locked until someone ticks that they checked. */}
+      <StockGatePanel
+        rows={stockGate}
+        checking={stockGateChecking}
+        acked={stockGateAcked}
+        onAck={onStockGateAck}
+      />
 
       {/* ── Inventory impact gate ────────────────────────────────────────
           When the import would flip in-stock units to status='sold' as a
@@ -2692,6 +2722,112 @@ function PreviewPhase({
           <span>{error}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+const STOCK_GATE_GROUPS: Array<{ kind: StockGateKind; title: string; why: string; chip: string }> = [
+  {
+    kind: 'rts',
+    title: 'Returned to supplier (RTS)',
+    why: 'These phones were sent back to the supplier. Either the wrong handset went back, or the wrong IMEI is on the order.',
+    chip: 'bg-rose-600 text-white',
+  },
+  {
+    kind: 'deleted',
+    title: 'Deleted from stock',
+    why: 'These phones were removed from inventory (QC fail, scrapped, duplicate). Check whether the phone really left on this order.',
+    chip: 'bg-rose-100 text-rose-800 border border-rose-200',
+  },
+  {
+    kind: 'not_in_stock',
+    title: 'Never stocked in',
+    why: 'These IMEIs were never added at Stock Intake, so office stock never counted them. Find the delivery they came in on.',
+    chip: 'bg-amber-100 text-amber-800 border border-amber-200',
+  },
+];
+
+/** The sold-but-not-in-stock warning on the import preview. */
+function StockGatePanel({ rows, checking, acked, onAck }: {
+  rows: StockGateRow[];
+  checking: boolean;
+  acked: boolean;
+  onAck: (v: boolean) => void;
+}) {
+  if (checking) {
+    return (
+      <div className="border border-slate-200 bg-slate-50 rounded-2xl p-3 flex items-center gap-2 text-[11px] text-slate-600">
+        <Loader2 size={14} className="animate-spin" />
+        Checking sold IMEIs against stock, deleted units and returns to supplier…
+      </div>
+    );
+  }
+  if (rows.length === 0) return null;
+  return (
+    <div className="border-2 border-rose-300 bg-rose-50 rounded-2xl p-3" data-testid="stock-gate">
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle size={20} className="text-rose-600 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-bold text-rose-900">
+            {rows.length} sold phone{rows.length === 1 ? ' was' : 's were'} not in stock
+          </p>
+          <p className="text-[11px] text-rose-800 mt-0.5">
+            Office stock will <strong>not</strong> go down for {rows.length === 1 ? 'this phone' : 'these phones'}:
+            {' '}each one is created as an already-sold record. Check every row before loading.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {STOCK_GATE_GROUPS.map(g => {
+          const groupRows = rows.filter(r => r.kind === g.kind);
+          if (groupRows.length === 0) return null;
+          return (
+            <div key={g.kind} className="bg-white border border-rose-200 rounded-xl overflow-hidden">
+              <div className="px-3 py-2 border-b border-rose-100">
+                <p className="text-[12px] font-bold text-slate-900 flex items-center gap-2">
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest ${g.chip}`}>
+                    {groupRows.length}
+                  </span>
+                  {g.title}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-0.5">{g.why}</p>
+              </div>
+              <ul className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                {groupRows.map(r => (
+                  <li key={r.saleId} className="px-3 py-1.5">
+                    <p className="text-[11px] font-bold text-slate-800 break-all">
+                      {r.imei}
+                      <span className="font-normal text-slate-500"> · {r.model || '(no model)'}</span>
+                    </p>
+                    <p className="text-[10px] font-mono text-slate-500 break-all">
+                      Sold {r.saleDate || '(no date)'} · {r.marketplace} {r.orderNumber}
+                    </p>
+                    <p className="text-[10px] font-mono text-rose-700">{r.detail}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-[10px] font-mono text-rose-700 mt-2">
+        Agreed order: Inventory Report → SHS Receive → Manual Stock → Sales Report.
+        If these phones were simply not stocked in yet, cancel and stock them in first.
+      </p>
+      <label className="mt-2 flex items-start gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          data-testid="stock-gate-ack"
+          checked={acked}
+          onChange={e => onAck(e.target.checked)}
+          className="mt-0.5 accent-rose-600"
+        />
+        <span className="text-[11px] font-bold text-rose-900">
+          I have checked these {rows.length} phone{rows.length === 1 ? '' : 's'} — load the sales anyway
+        </span>
+      </label>
     </div>
   );
 }

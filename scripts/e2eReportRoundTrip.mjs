@@ -356,8 +356,12 @@ async function run() {
   await page.locator('input[type="file"]').first().setInputFiles(SALES_FILE);
   await page.waitForTimeout(5000);
 
-  const ackBox = modal(page).locator('input[type="checkbox"]').first();
+  const ackBox = modal(page).locator('input[type="checkbox"]:not([data-testid="stock-gate-ack"])').first();
   if (await ackBox.isVisible().catch(() => false)) { await ackBox.check(); await page.waitForTimeout(400); }
+  // The sold-but-not-in-stock warning (importStockGate). This file's orphan
+  // rows are deliberate — phones never stocked in — so acknowledge it the way
+  // an operator who has checked them would.
+  await modal(page).locator('[data-testid="stock-gate-ack"]').check().catch(() => {});
 
   // Complete the orphan audit rows so the import can land.
   const fill = async (selector, value) => {

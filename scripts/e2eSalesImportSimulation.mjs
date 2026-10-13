@@ -426,6 +426,10 @@ for (let i = 0; i < await boxes.count(); i++) {
   const label = await box.evaluate(el => el.closest('label')?.innerText || '').catch(() => '');
   if (/flip|sold|fulfil/i.test(label)) await box.check().catch(() => {});
 }
+// The sold-but-not-in-stock warning (importStockGate). This file's orphan
+// rows are deliberate — phones never stocked in — so acknowledge it the way
+// an operator who has checked them would.
+await modal().locator('[data-testid="stock-gate-ack"]').check().catch(() => {});
 await page.waitForTimeout(500);
 check('Confirm enables once nothing is held',
   await confirmButton().isDisabled().catch(() => null), false);
