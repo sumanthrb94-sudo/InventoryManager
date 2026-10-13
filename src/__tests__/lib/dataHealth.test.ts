@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  missingBuyPrice, missingSupplier, duplicateImeis, orphanSales,
+  missingBuyPrice, missingSupplier, duplicateImeis, orphanSales, soldStillInStock,
   staleShs, skuLikeModels, lossMakingSales, runHealthChecks, totalIssues,
   duplicateSuppliers, unrecognisedPlatform, shsInventedImei,
 } from '../../lib/dataHealth';
@@ -269,12 +269,10 @@ describe('loss-making sales', () => {
 describe('the panel as a whole', () => {
   it('is silent on healthy data', () => {
     const checks = runHealthChecks(input(
-      [unit({ id: '1' }), unit({ id: '2' })],
+      [unit({ id: '1', status: 'sold' as any, salePlatform: 'AMAZON' }), unit({ id: '2' })],
       [sale({ id: 's1', imei: '350100000000001' })],
     ));
-    // s1's IMEI won't match unit 1's generated IMEI, so allow that one.
-    const nonOrphan = checks.filter(c => c.key !== 'orphan-sales');
-    expect(totalIssues(nonOrphan)).toBe(0);
+    expect(totalIssues(checks)).toBe(0);
   });
 
   it('puts checks that found something first, worst severity leading', () => {
@@ -289,7 +287,7 @@ describe('the panel as a whole', () => {
 
   it('runs every check, even the ones that pass', () => {
     // A check that vanishes when clean is a check nobody trusts is running.
-    expect(runHealthChecks(input([])).length).toBe(10);
+    expect(runHealthChecks(input([])).length).toBe(11);
   });
 
   it('totals the issues across checks', () => {
@@ -368,5 +366,55 @@ describe('unrecognised platform', () => {
 
   it('ignores unsold stock, which has no platform yet', () => {
     expect(unrecognisedPlatform(input([unit({ id: '1', status: 'available' })])).issues).toEqual([]);
+  });
+});
+
+describe('sold but still counted as stock', () => {
+  // The "500 − 85 sold = 415, but office stock says 437" report: sale rows
+  // land, units never flip, and every such sale inflates the stock tile.
+  it('flags a sale whose unit is still available, matched by IMEI or unitId', () => {
+    const found = soldStillInStock(input(
+      [
+        unit({ id: '1', imei: '350000000000001' }),
+        unit({ id: '2', imei: '350000000000002' }),
+        unit({ id: '3', imei: '350000000000003', status: 'sold' as any }),
+      ],
+      [
+        sale({ id: 's1', imei: '350000000000001' }),
+        sale({ id: 's2', unitId: '2' }),
+        sale({ id: 's3', imei: '350000000000003' }),
+      ],
+    ));
+    expect(found.issues.map(i => i.id)).toEqual(['s1', 's2']);
+  });
+
+  it('flags a two-stage sale still waiting for its IMEI', () => {
+    const found = soldStillInStock(input([], [
+      sale({ id: 's1', awaitingImei: true, model: 'IPHONE 13' } as any),
+    ]));
+    expect(found.issues.map(i => i.id)).toEqual(['s1']);
+    expect(found.issues[0].detail).toMatch(/awaiting IMEI/);
+  });
+
+  it('leaves a genuine Back-to-Inventory return alone', () => {
+    const found = soldStillInStock(input(
+      [unit({
+        id: '1', imei: '350000000000001',
+        returnType: 'returned_to_inventory', returnDate: '2026-07-23',
+      } as any)],
+      [sale({ id: 's1', imei: '350000000000001', saleDate: '2026-07-21' })],
+    ));
+    expect(found.issues).toEqual([]);
+  });
+
+  it('ignores voided sales and IMEI-less sales with no unit', () => {
+    const found = soldStillInStock(input(
+      [unit({ id: '1', imei: '350000000000001' })],
+      [
+        sale({ id: 's1', imei: '350000000000001', voidedAt: '2026-07-22' } as any),
+        sale({ id: 's2', sku: 'CASE-BLK' }),
+      ],
+    ));
+    expect(found.issues).toEqual([]);
   });
 });
