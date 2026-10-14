@@ -2576,12 +2576,16 @@ function ProcessReturnModal({
     (unit.returnType as ReturnCategory | undefined) ?? 'returned_to_inventory',
   );
   const [outcome, setOutcome]       = useState<'refund' | 'replacement'>('refund');
-  const [reason, setReason]         = useState(unit.returnReason ?? '');
   const [returnDate, setReturnDate] = useState(unit.returnDate ?? todayStr());
   // Step-1 fields: customer's complaint as logged at intake, then the
   // tech's QC findings. Both required to advance to the CRM queue.
   const [customerComments, setCustomerComments] = useState(unit.customerComments ?? '');
   const [technicianComments, setTechnicianComments] = useState(unit.technicianComments ?? '');
+  // Return reason is no longer re-asked at the CRM step — the customer's
+  // complaint was already captured at Tech-QC ("Customer said"), so it
+  // doubles as the reason. A reason already on the unit (legacy flows,
+  // re-processing) still wins.
+  const reason = (unit.returnReason ?? '').trim() || customerComments.trim();
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState('');
   // Replacement-route requirement: when the outcome is "Replacement" the
@@ -2666,7 +2670,7 @@ function ProcessReturnModal({
   };
 
   const handleSave = async () => {
-    if (!reason.trim()) { setError('Please enter a return reason.'); return; }
+    if (!reason) { setError('Customer comments from Tech-QC are missing — add them before finalising.'); return; }
     // Replacement-route requirement: an actual replacement unit must be
     // picked from stock (matching brand + model + storage) before the
     // void can land. Without this the operator's audit trail had no
@@ -2925,19 +2929,13 @@ function ProcessReturnModal({
             </div>
           )}
 
-          {/* CRM step only adds the Return Reason categorical label +
-              destination info banner. The customer + technician comments
-              already live in the read-only echo block at the top of the
-              modal, and the date came from Tech-QC — no duplicate inputs. */}
+          {/* CRM step only adds the destination info banner. The return
+              reason is taken from the Tech-QC "Customer said" comment, and
+              the customer + technician comments already live in the
+              read-only echo block at the top of the modal — no duplicate
+              inputs. */}
           {step === 'crm' && (
             <>
-              <div>
-                <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1.5">Return Reason *</label>
-                <input value={reason} onChange={e => { setReason(e.target.value); setError(''); }}
-                  placeholder="e.g. Customer changed mind, Faulty screen, Wrong item sent"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-black transition-all" />
-              </div>
-
               {returnType === 'returned_to_inventory' && (
                 <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
                   <PackageCheck size={13} className="text-emerald-600 flex-shrink-0 mt-0.5" />
