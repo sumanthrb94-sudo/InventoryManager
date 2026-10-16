@@ -38,7 +38,7 @@ export const SIM_TYPE_OPTIONS = ['Physical SIM', 'Physical SIM + eSIM', 'Dual Ph
  * inserting one in the middle shifts every option below it and re-teaches
  * the operator's muscle memory on the highest-volume screen in the app.
  */
-export const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue', 'Silver', 'Purple', 'Violet', 'Navy'] as const;
+export const COLOUR_PRESETS = ['Black', 'White', 'Grey', 'Blue', 'Silver', 'Purple', 'Violet', 'Navy', 'Blue Black'] as const;
 export type ColourPreset = typeof COLOUR_PRESETS[number];
 
 export type Grade = typeof GRADE_OPTIONS[number];

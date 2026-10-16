@@ -36,7 +36,7 @@ const COLOUR_OPTIONS = [
   'Gold','Silver','Graphite','Starlight','Midnight','Natural Titanium',
   'Black Titanium','White Titanium','Phantom Black','Phantom White',
   'Space Grey','Sierra Blue','Alpine Green','Coral','Mint','Cream',
-  'Lavender','Desert Titanium','Pacific Blue','Rose Gold','Other',
+  'Lavender','Desert Titanium','Pacific Blue','Rose Gold','Blue Black','Other',
 ];
 
 // Parse barcode label to extract model, grade, storage info

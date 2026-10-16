@@ -16,10 +16,11 @@ describe('colour presets are shared, not copied (operator asked for Silver, 2026
    *  offered it for months — three private COLOUR_PRESETS copies had drifted
    *  apart, the same failure the GRADE_OPTIONS docblock records. Adding a
    *  colour must now be a one-line change that every intake path picks up.
-   *  Purple and Violet were added the same way on 2026-09-22, then Navy. */
-  it('includes Silver, Purple, Violet and Navy alongside the original four', () => {
+   *  Purple and Violet were added the same way on 2026-09-22, then Navy,
+   *  then Blue Black (2026-10-16, requested by the team). */
+  it('includes Silver, Purple, Violet, Navy and Blue Black alongside the original four', () => {
     expect(COLOUR_PRESETS).toEqual(
-      ['Black', 'White', 'Grey', 'Blue', 'Silver', 'Purple', 'Violet', 'Navy'],
+      ['Black', 'White', 'Grey', 'Blue', 'Silver', 'Purple', 'Violet', 'Navy', 'Blue Black'],
     );
   });
 
