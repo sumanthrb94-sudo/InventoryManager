@@ -39,6 +39,11 @@ export const TEXT_PATTERNS = {
 };
 
 export const COLOR_SYNONYMS: Record<string, string> = {
+  // Blue Black sits above BOTH black and blue — it contains each of them,
+  // and this map is first-match-wins (see the Navy note below).
+  'blue black': 'Blue Black',
+  'blue-black': 'Blue Black',
+
   // iPhone colors
   black: 'Black',
   'jet black': 'Black',
